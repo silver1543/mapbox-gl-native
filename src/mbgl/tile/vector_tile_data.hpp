@@ -14,6 +14,7 @@ namespace mbgl {
 class Style;
 class AsyncRequest;
 class GeometryTileMonitor;
+class FeatureIndex;
 
 class VectorTileData : public TileData {
 public:
@@ -35,6 +36,8 @@ public:
 
     bool hasData() const override;
 
+    void queryRenderedFeatures(std::unordered_map<std::string, std::vector<std::string>>& result) override;
+
     void cancel() override;
 
 private:
@@ -49,6 +52,9 @@ private:
     // Contains all the Bucket objects for the tile. Buckets are render
     // objects and they get added by tile parsing operations.
     std::unordered_map<std::string, std::unique_ptr<Bucket>> buckets;
+
+    std::unique_ptr<FeatureIndex> featureIndex;
+    std::unique_ptr<const GeometryTile> geometryTile;
 
     // Stores the placement configuration of the text that is currently placed on the screen.
     PlacementConfig placedConfig;
