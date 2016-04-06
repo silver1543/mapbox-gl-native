@@ -36,7 +36,10 @@ public:
 
     bool hasData() const override;
 
-    void queryRenderedFeatures(std::unordered_map<std::string, std::vector<std::string>>& result) override;
+    void queryRenderedFeatures(
+            std::unordered_map<std::string, std::vector<std::string>>& result,
+            const GeometryCollection& queryGeometry,
+            double scale) override;
 
     void cancel() override;
 
