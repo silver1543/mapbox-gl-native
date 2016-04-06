@@ -1,11 +1,12 @@
 #include <mbgl/geometry/feature_index.hpp>
 #include <mbgl/util/math.hpp>
+#include <mbgl/style/style.cpp>
+#include <mbgl/util/get_geometries.hpp>
 
 #include <cassert>
 #include <string>
 
 using namespace mbgl;
-
 
 FeatureIndex::FeatureIndex() {}
 
@@ -44,8 +45,14 @@ void FeatureIndex::loadTree() {
 void FeatureIndex::query(
         std::unordered_map<std::string, std::vector<std::string>>& result,
         const GeometryCollection& queryGeometry,
-        double,
-        const GeometryTile& geometryTile) {
+        double scale,
+        const GeometryTile& geometryTile,
+        const Style& style) {
+
+    const float pixelsToTileUnits = util::EXTENT / util::tileSize / scale;
+    const float bearing = 0;
+
+    float additionalRadius = style.getQueryRadius() * pixelsToTileUnits;
 
     float minX = std::numeric_limits<float>::infinity();
     float minY = std::numeric_limits<float>::infinity();
@@ -62,8 +69,8 @@ void FeatureIndex::query(
     }
 
     TreeBox queryBox = {
-        TreePoint { minX, minY },
-        TreePoint { maxX, maxY }
+        TreePoint { minX - additionalRadius, minY - additionalRadius },
+        TreePoint { maxX + additionalRadius, maxY + additionalRadius }
     };
 
     std::vector<FeatureTreeBox> matchingBoxes;
@@ -82,9 +89,25 @@ void FeatureIndex::query(
         assert(feature);
 
         auto& bucketName = indexedFeature.bucketName;
+
+        auto styleLayer = style.getLayer(bucketName);
+        if (!styleLayer) continue;
+
+        auto geometries = getGeometries(*feature);
+        styleLayer->queryIntersectsGeometry(queryGeometry, geometries, bearing, pixelsToTileUnits);
+
         auto& layerResult = result[bucketName];
 
         layerResult.push_back(indexedFeature.sourceLayerName);
     }
 
+}
+
+optional<GeometryCollection> FeatureIndex::translateQueryGeometry(
+        const GeometryCollection&,
+        const std::array<float, 2>&,
+        const TranslateAnchorType,
+        const float,
+        const float) {
+    return {};
 }

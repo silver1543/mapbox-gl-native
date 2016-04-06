@@ -352,6 +352,15 @@ std::vector<std::string> Style::queryRenderedFeatures(const std::vector<TileCoor
     return features;
 }
 
+float Style::getQueryRadius() const {
+    float additionalRadius = 0;
+    for (auto& layer : layers) {
+        additionalRadius = util::max(additionalRadius, layer->getQueryRadius());
+    }
+    return additionalRadius;
+}
+
+
 void Style::setSourceTileCacheSize(size_t size) {
     for (const auto& source : sources) {
         source->setCacheSize(size);

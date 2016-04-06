@@ -112,6 +112,8 @@ public:
 
     std::vector<std::string> queryRenderedFeatures(const std::vector<TileCoordinate>& queryGeometry, double zoom);
 
+    float getQueryRadius() const;
+
     void setSourceTileCacheSize(size_t);
     void onLowMemory();
 
