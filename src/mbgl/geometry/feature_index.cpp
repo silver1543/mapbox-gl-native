@@ -2,6 +2,7 @@
 #include <mbgl/util/math.hpp>
 #include <mbgl/style/style.cpp>
 #include <mbgl/util/get_geometries.hpp>
+#include <mbgl/text/collision_tile.hpp>
 
 #include <cassert>
 #include <string>
@@ -12,6 +13,8 @@ FeatureIndex::FeatureIndex() {}
 
 void FeatureIndex::insert(const GeometryCollection& geometries, std::size_t index,
         const std::string& sourceLayerName, const std::string& bucketName) {
+
+    auto sortIndex = treeBoxes.size();
 
     for (auto& ring : geometries) {
 
@@ -33,7 +36,7 @@ void FeatureIndex::insert(const GeometryCollection& geometries, std::size_t inde
                 TreePoint { minX, minY },
                 TreePoint { maxX, maxY }
             },
-            IndexedSubfeature { index, sourceLayerName, bucketName, treeBoxes.size() }
+            IndexedSubfeature { index, sourceLayerName, bucketName, sortIndex }
         );
     }
 }
@@ -42,11 +45,24 @@ void FeatureIndex::loadTree() {
     tree.insert(treeBoxes.begin(), treeBoxes.end());
 }
 
+bool vectorContains(const std::vector<std::string>& vector, const std::string& s) {
+    return std::find(vector.begin(), vector.end(), s) != vector.end();
+}
+
 bool vectorsIntersect(const std::vector<std::string>& vectorA, const std::vector<std::string>& vectorB) {
     for (auto& a : vectorA) {
-        if (std::find(vectorB.begin(), vectorB.end(), a) != vectorB.end()) return true;
+        if (vectorContains(vectorB, a)) return true;;
     }
     return false;
+}
+
+
+bool topDown(const FeatureTreeBox& a, const FeatureTreeBox& b) {
+    return std::get<1>(a).sortIndex > std::get<1>(b).sortIndex;
+}
+
+bool topDownSymbols(const IndexedSubfeature& a, const IndexedSubfeature& b) {
+    return a.sortIndex > b.sortIndex;
 }
 
 void FeatureIndex::query(
@@ -56,7 +72,7 @@ void FeatureIndex::query(
         const double scale,
         const optional<std::vector<std::string>>& filterLayerIDs,
         const GeometryTile& geometryTile,
-        const Style& style) {
+        const Style& style) const {
 
     const float pixelsToTileUnits = util::EXTENT / util::tileSize / scale;
 
@@ -81,44 +97,65 @@ void FeatureIndex::query(
         TreePoint { maxX + additionalRadius, maxY + additionalRadius }
     };
 
+    // query circle, line, fill features
     std::vector<FeatureTreeBox> matchingBoxes;
     tree.query(bgi::intersects(queryBox), std::back_inserter(matchingBoxes));
+    std::sort(matchingBoxes.begin(), matchingBoxes.end(), topDown);
 
-    std::sort(matchingBoxes.begin(), matchingBoxes.end(), [](FeatureTreeBox& a, FeatureTreeBox& b) {
-        return std::get<1>(b).sortIndex - std::get<1>(a).sortIndex;
-    });
-
+    size_t previousSortIndex = std::numeric_limits<size_t>::max();
     for (auto& matchingBox : matchingBoxes) {
         auto& indexedFeature = std::get<1>(matchingBox);
 
-        auto& layerIDs = bucketLayerIDs.at(indexedFeature.bucketName);
+        // If this feature is the same as the previous feature, skip it.
+        if (indexedFeature.sortIndex == previousSortIndex) continue;
+        previousSortIndex = indexedFeature.sortIndex;
 
-        if (filterLayerIDs && !vectorsIntersect(layerIDs, filterLayerIDs.value())) continue;
-
-        auto sourceLayer = geometryTile.getLayer(indexedFeature.sourceLayerName);
-        assert(sourceLayer);
-        auto feature = sourceLayer->getFeature(indexedFeature.index);
-        assert(feature);
-
-        for (auto& layerID : layerIDs) {
-
-            if (filterLayerIDs) {
-                auto& filterIDs = filterLayerIDs.value();
-                if (std::find(filterIDs.begin(), filterIDs.end(), layerID) == filterIDs.end()) continue;
-            }
-
-            auto styleLayer = style.getLayer(layerID);
-            if (!styleLayer) continue;
-
-            auto geometries = getGeometries(*feature);
-            if (!styleLayer->queryIntersectsGeometry(queryGeometry, geometries, bearing, pixelsToTileUnits)) continue;
-
-            auto& layerResult = result[layerID];
-
-            layerResult.push_back(layerID);
-        }
+        addFeature(result, indexedFeature, queryGeometry, filterLayerIDs, geometryTile, style, bearing, pixelsToTileUnits);
     }
 
+    // query symbol features
+    std::vector<IndexedSubfeature> symbolFeatures = collisionTile->queryRenderedSymbols(minX, minY, maxX, maxY, scale);
+    std::sort(symbolFeatures.begin(), symbolFeatures.end(), topDownSymbols);
+    for (auto& symbolFeature : symbolFeatures) {
+        addFeature(result, symbolFeature, queryGeometry, filterLayerIDs, geometryTile, style, bearing, pixelsToTileUnits);
+    }
+}
+
+void FeatureIndex::addFeature(
+    std::unordered_map<std::string, std::vector<std::string>>& result,
+    const IndexedSubfeature& indexedFeature,
+    const GeometryCollection& queryGeometry,
+    const optional<std::vector<std::string>>& filterLayerIDs,
+    const GeometryTile& geometryTile,
+    const Style& style,
+    const float bearing,
+    const float pixelsToTileUnits) const {
+
+    auto& layerIDs = bucketLayerIDs.at(indexedFeature.bucketName);
+
+    if (filterLayerIDs && !vectorsIntersect(layerIDs, filterLayerIDs.value())) return;
+
+    auto sourceLayer = geometryTile.getLayer(indexedFeature.sourceLayerName);
+    assert(sourceLayer);
+    auto feature = sourceLayer->getFeature(indexedFeature.index);
+    assert(feature);
+
+    for (auto& layerID : layerIDs) {
+
+        if (filterLayerIDs && !vectorContains(filterLayerIDs.value(), layerID)) continue;
+
+        auto styleLayer = style.getLayer(layerID);
+        if (!styleLayer) continue;
+
+        if (!styleLayer->is<SymbolLayer>()) {
+            auto geometries = getGeometries(*feature);
+            if (!styleLayer->queryIntersectsGeometry(queryGeometry, geometries, bearing, pixelsToTileUnits)) continue;
+        }
+
+        auto& layerResult = result[layerID];
+
+        layerResult.push_back(layerID);
+    }
 }
 
 optional<GeometryCollection> FeatureIndex::translateQueryGeometry(
@@ -150,4 +187,8 @@ optional<GeometryCollection> FeatureIndex::translateQueryGeometry(
 void FeatureIndex::addBucketLayerName(const std::string& bucketName, const std::string& layerID) {
     auto& layerIDs = bucketLayerIDs[bucketName];
     layerIDs.push_back(layerID);
+}
+
+void FeatureIndex::setCollisionTile(std::unique_ptr<CollisionTile> collisionTile_) {
+    collisionTile = std::move(collisionTile_);
 }

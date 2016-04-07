@@ -99,7 +99,7 @@ TileParseResult TileWorker::parsePendingLayers(const PlacementConfig config) {
     result.state = pending.empty() ? TileData::State::parsed : TileData::State::partial;
 
     if (result.state == TileData::State::parsed) {
-        placeLayers(config);
+        featureIndex->setCollisionTile(std::move(placeLayers(config)));
         featureIndex->loadTree();
         result.featureIndex = std::move(featureIndex);
         result.geometryTile = std::move(geometryTile);
@@ -108,27 +108,30 @@ TileParseResult TileWorker::parsePendingLayers(const PlacementConfig config) {
     return std::move(result);
 }
 
-void TileWorker::placeLayers(const PlacementConfig config) {
-    redoPlacement(&placementPending, config);
+std::unique_ptr<CollisionTile> TileWorker::placeLayers(const PlacementConfig config) {
+    auto collisionTile = redoPlacement(&placementPending, config);
     for (auto &p : placementPending) {
         p.second->swapRenderData();
         insertBucket(p.first, std::move(p.second));
     }
     placementPending.clear();
+    return std::move(collisionTile);
 }
 
-void TileWorker::redoPlacement(
+std::unique_ptr<CollisionTile> TileWorker::redoPlacement(
     const std::unordered_map<std::string, std::unique_ptr<Bucket>>* buckets,
     PlacementConfig config) {
 
-    CollisionTile collisionTile(config);
+    auto collisionTile = std::make_unique<CollisionTile>(config);
 
     for (auto i = layers.rbegin(); i != layers.rend(); i++) {
         const auto it = buckets->find((*i)->id);
         if (it != buckets->end()) {
-            it->second->placeFeatures(collisionTile);
+            it->second->placeFeatures(*collisionTile);
         }
     }
+
+    return std::move(collisionTile);
 }
 
 void TileWorker::parseLayer(const StyleLayer* layer) {

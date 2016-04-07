@@ -58,13 +58,13 @@ public:
 
     TileParseResult parsePendingLayers(PlacementConfig);
 
-    void redoPlacement(const std::unordered_map<std::string, std::unique_ptr<Bucket>>*,
+    std::unique_ptr<CollisionTile> redoPlacement(const std::unordered_map<std::string, std::unique_ptr<Bucket>>*,
                        PlacementConfig);
 
 private:
     void parseLayer(const StyleLayer*);
     void insertBucket(const std::string& name, std::unique_ptr<Bucket>);
-    void placeLayers(PlacementConfig);
+    std::unique_ptr<CollisionTile> placeLayers(PlacementConfig);
 
     const TileID id;
     const std::string sourceID;

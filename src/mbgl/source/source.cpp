@@ -543,7 +543,7 @@ std::unordered_map<std::string, std::vector<std::string>> Source::queryRenderedF
 
     for (auto& it : tileQueries) {
         auto& tileQuery = std::get<1>(it);
-        tileQuery.tile->data->queryRenderedFeatures(result, tileQuery.queryGeometry, tileQuery.scale, bearing, layerIDs);
+        tileQuery.tile->data->queryRenderedFeatures(result, tileQuery.queryGeometry, bearing, tileQuery.scale, layerIDs);
     }
 
     return result;

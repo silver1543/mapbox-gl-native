@@ -6,6 +6,7 @@
 #include <mbgl/style/style.hpp>
 #include <mbgl/storage/file_source.hpp>
 #include <mbgl/geometry/feature_index.hpp>
+#include <mbgl/text/collision_tile.hpp>
 
 namespace mbgl {
 
@@ -164,7 +165,7 @@ void VectorTileData::redoPlacement(const std::function<void()>& callback) {
     // we are parsing buckets.
     if (workRequest) return;
 
-    workRequest = worker.redoPlacement(tileWorker, buckets, targetConfig, [this, callback, config = targetConfig] {
+    workRequest = worker.redoPlacement(tileWorker, buckets, targetConfig, [this, callback, config = targetConfig](std::unique_ptr<CollisionTile> collisionTile) {
         workRequest.reset();
 
         // Persist the configuration we just placed so that we can later check whether we need to
@@ -173,6 +174,10 @@ void VectorTileData::redoPlacement(const std::function<void()>& callback) {
 
         for (auto& bucket : buckets) {
             bucket.second->swapRenderData();
+        }
+
+        if (featureIndex) {
+            featureIndex->setCollisionTile(std::move(collisionTile));
         }
 
         // The target configuration could have changed since we started placement. In this case,

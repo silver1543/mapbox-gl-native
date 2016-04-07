@@ -29,12 +29,11 @@
 namespace mbgl {
 
 class Style;
+class CollisionTile;
 enum class TranslateAnchorType : bool;
 
 class IndexedSubfeature {
     public:
-        IndexedSubfeature(std::size_t index_, std::string sourceLayerName_, std::string bucketName_, size_t sortIndex_) :
-            index(index_), sourceLayerName(sourceLayerName_), bucketName(bucketName_), sortIndex(sortIndex_) {};
         std::size_t index;
         std::string sourceLayerName;
         std::string bucketName;
@@ -63,7 +62,7 @@ class FeatureIndex {
                 const double scale,
                 const optional<std::vector<std::string>>& layerIDs,
                 const GeometryTile& geometryTile,
-                const Style&);
+                const Style&) const;
 
         static optional<GeometryCollection> translateQueryGeometry(
                 const GeometryCollection& queryGeometry,
@@ -74,7 +73,21 @@ class FeatureIndex {
 
         void addBucketLayerName(const std::string &bucketName, const std::string &layerName);
 
+        void setCollisionTile(std::unique_ptr<CollisionTile>);
+
     private:
+
+        void addFeature(
+                std::unordered_map<std::string, std::vector<std::string>>& result,
+                const IndexedSubfeature &indexedFeature,
+                const GeometryCollection& queryGeometry,
+                const optional<std::vector<std::string>>& filterLayerIDs,
+                const GeometryTile& geometryTile,
+                const Style& style,
+                const float bearing,
+                const float pixelsToTileUnits) const;
+
+        std::unique_ptr<CollisionTile> collisionTile;
         std::vector<FeatureTreeBox> treeBoxes;
         FeatureTree tree;
 
