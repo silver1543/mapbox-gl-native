@@ -84,6 +84,23 @@ optional<Value> VectorTileFeature::getValue(const std::string& key) const {
     return optional<Value>();
 }
 
+std::unordered_map<std::string,Value> VectorTileFeature::getProperties() const {
+    std::unordered_map<std::string,Value> properties;
+    pbf tags = tags_pbf;
+    while (tags) {
+        uint32_t tag_key = tags.varint();
+        uint32_t tag_val = tags.varint();
+        // this shouldn't use a linear searach of a map
+        for (auto it = layer.keys.begin(); it != layer.keys.end(); it++) {
+            if (it->second == tag_key) {
+                properties[it->first] = layer.values.at(tag_val);
+                break;
+            }
+        }
+    }
+    return properties;
+}
+
 GeometryCollection VectorTileFeature::getGeometries() const {
     pbf data(geometry_pbf);
     uint8_t cmd = 1;

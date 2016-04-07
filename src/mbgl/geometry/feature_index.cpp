@@ -3,6 +3,8 @@
 #include <mbgl/style/style.cpp>
 #include <mbgl/util/get_geometries.hpp>
 #include <mbgl/text/collision_tile.hpp>
+#include <mbgl/util/rapidjson.hpp>
+#include <rapidjson/writer.h>
 
 #include <cassert>
 #include <string>
@@ -154,6 +156,32 @@ void FeatureIndex::addFeature(
 
         auto& layerResult = result[layerID];
 
+        auto properties = feature->getProperties();
+        rapidjson::StringBuffer buffer;
+        buffer.Clear();
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+
+        writer.StartObject();
+        writer.Key("type");
+        writer.String("Feature");
+        writer.Key("properties");
+        writer.StartObject();
+        for (auto& prop : properties) {
+            std::string key = prop.first;
+            Value& value = prop.second;
+
+            writer.Key(key.c_str());
+
+            if (value.is<std::string>()) {
+                writer.String(toString(value).c_str());
+            } else {
+                writer.Double(toNumber<double>(value));
+            }
+        }
+        writer.EndObject();
+        writer.EndObject();
+
+        layerResult.push_back(buffer.GetString());
         layerResult.push_back(layerID);
     }
 }
