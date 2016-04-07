@@ -52,6 +52,7 @@ NAN_MODULE_INIT(NodeMap::Init) {
     Nan::SetPrototypeMethod(tpl, "render", Render);
     Nan::SetPrototypeMethod(tpl, "release", Release);
     Nan::SetPrototypeMethod(tpl, "dumpDebugLogs", DumpDebugLogs);
+    Nan::SetPrototypeMethod(tpl, "queryRenderedFeatures", QueryRenderedFeatures);
 
     constructor.Reset(tpl->GetFunction());
     Nan::Set(target, Nan::New("Map").ToLocalChecked(), tpl->GetFunction());
@@ -448,6 +449,37 @@ NAN_METHOD(NodeMap::DumpDebugLogs) {
 
     nodeMap->map->dumpDebugLogs();
     info.GetReturnValue().SetUndefined();
+}
+
+NAN_METHOD(NodeMap::QueryRenderedFeatures) {
+    auto nodeMap = Nan::ObjectWrap::Unwrap<NodeMap>(info.Holder());
+    Nan::HandleScope scope;
+
+    if (!nodeMap->isValid()) return Nan::ThrowError(releasedMessage());
+
+    if (info.Length() <= 0 || !info[0]->IsArray()) {
+        return Nan::ThrowTypeError("First argument must be an array");
+    }
+
+    auto pos = info[0].As<v8::Array>();
+    if (pos->Length() < 2) {
+        return Nan::ThrowTypeError("First argument must have two components");
+    }
+
+    mbgl::ScreenCoordinate queryGeometry(
+            Nan::Get(pos, 0).ToLocalChecked()->NumberValue(),
+            Nan::Get(pos, 1).ToLocalChecked()->NumberValue());
+
+    try {
+        auto array = Nan::New<v8::Array>();
+        auto result = nodeMap->map->queryRenderedFeatures(queryGeometry);
+        for (unsigned int i = 0; i < result.size(); i++) {
+            array->Set(i, Nan::New<v8::String>(result[i]).ToLocalChecked());
+        }
+        info.GetReturnValue().Set(array);
+    } catch (const std::exception &ex) {
+        return Nan::ThrowError(ex.what());
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
