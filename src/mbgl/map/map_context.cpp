@@ -312,7 +312,7 @@ std::vector<std::string> MapContext::queryRenderedFeatures(const ScreenCoordinat
     queryPoints.push_back(point);
     std::vector<TileCoordinate> queryGeometry;
     for (auto& p : queryPoints) {
-        queryGeometry.push_back(TileCoordinate::fromScreenCoordinate(transformState, 0, p));
+        queryGeometry.push_back(TileCoordinate::fromScreenCoordinate(transformState, 0, { p.x, transformState.getHeight() - p.y }));
     }
     if (!style) return {};
     return style->queryRenderedFeatures(queryGeometry, transformState.getZoom(), transformState.getAngle(), layerIDs);

@@ -101,6 +101,10 @@ std::unordered_map<std::string,Value> VectorTileFeature::getProperties() const {
     return properties;
 }
 
+uint64_t VectorTileFeature::getID() const {
+    return id;
+}
+
 GeometryCollection VectorTileFeature::getGeometries() const {
     pbf data(geometry_pbf);
     uint8_t cmd = 1;

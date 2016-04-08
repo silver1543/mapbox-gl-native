@@ -164,6 +164,11 @@ void FeatureIndex::addFeature(
         writer.StartObject();
         writer.Key("type");
         writer.String("Feature");
+        auto id = feature->getID();
+        if (id) {
+            writer.Key("id");
+            writer.Double(feature->getID());
+        }
         writer.Key("properties");
         writer.StartObject();
         for (auto& prop : properties) {
@@ -182,7 +187,6 @@ void FeatureIndex::addFeature(
         writer.EndObject();
 
         layerResult.push_back(buffer.GetString());
-        layerResult.push_back(layerID);
     }
 }
 

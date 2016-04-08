@@ -21,7 +21,7 @@
   ],
   "devDependencies": {
     "aws-sdk": "^2.2.21",
-    "mapbox-gl-test-suite": "mapbox/mapbox-gl-test-suite#1e0d988e187a6c9a7a74fa8d7feb9c66c2258123",
+    "mapbox-gl-test-suite": "mapbox/mapbox-gl-test-suite#8a1b41d78c17659afb79a3afb7e5beba432f01ec",
     "node-gyp": "^3.2.1",
     "request": "^2.67.0",
     "tape": "^4.2.2"
@@ -32,7 +32,7 @@
   "scripts": {
     "install": "node-pre-gyp install --fallback-to-build=false || make node",
     "test": "tape platform/node/test/js/**/*.test.js",
-    "test-suite": "node platform/node/test/render.test.js"
+    "test-suite": "node platform/node/test/render.test.js && node platform/node/test/query.test.js"
   },
   "gypfile": true,
   "binary": {
