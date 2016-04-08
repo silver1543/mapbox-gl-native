@@ -307,13 +307,34 @@ void MapContext::setClasses(const std::vector<std::string>& classNames, const Pr
     updateAsync(Update::Classes);
 }
 
-std::vector<std::string> MapContext::queryRenderedFeatures(const ScreenCoordinate& point, const optional<std::vector<std::string>>& layerIDs) {
-    std::vector<ScreenCoordinate> queryPoints;
-    queryPoints.push_back(point);
+std::vector<TileCoordinate> pointsToCoordinates(const std::vector<ScreenCoordinate>& queryPoints, const TransformState& transformState) {
     std::vector<TileCoordinate> queryGeometry;
     for (auto& p : queryPoints) {
         queryGeometry.push_back(TileCoordinate::fromScreenCoordinate(transformState, 0, { p.x, transformState.getHeight() - p.y }));
     }
+    return queryGeometry;
+}
+
+std::vector<std::string> MapContext::queryRenderedFeatures(const ScreenCoordinate& point, const optional<std::vector<std::string>>& layerIDs) {
+    auto queryGeometry = pointsToCoordinates({ point }, transformState);
+
+    if (!style) return {};
+    return style->queryRenderedFeatures(queryGeometry, transformState.getZoom(), transformState.getAngle(), layerIDs);
+}
+
+std::vector<std::string> MapContext::queryRenderedFeaturesBox(const std::vector<ScreenCoordinate>& box, const optional<std::vector<std::string>>& layerIDs) {
+    if (box.size() != 2) return {};
+
+    std::vector<ScreenCoordinate> queryPoints {
+        { box[0].x, box[0].y },
+        { box[1].x, box[0].y },
+        { box[1].x, box[1].y },
+        { box[0].x, box[1].y },
+        { box[0].x, box[0].y }
+    };
+
+    auto queryGeometry = pointsToCoordinates(queryPoints, transformState);
+
     if (!style) return {};
     return style->queryRenderedFeatures(queryGeometry, transformState.getZoom(), transformState.getAngle(), layerIDs);
 };
