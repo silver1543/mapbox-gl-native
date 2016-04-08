@@ -32,8 +32,8 @@ workflows:
             brew unlink node
             brew install awscli homebrew/versions/node4-lts
             brew link homebrew/versions/node4-lts
-            make node
-            make test-node || result=$?
+            BUILDTYPE=Debug make node
+            node platform/node/test/query.test.js || result=$?
             ./platform/node/scripts/after_script.sh ${BITRISE_BUILD_NUMBER} ${BITRISE_GIT_TAG:-}
             exit ${result:-0}
     - slack:
