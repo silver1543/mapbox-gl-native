@@ -335,7 +335,7 @@ std::vector<std::string> Style::queryRenderedFeatures(
         const optional<std::vector<std::string>>& layerIDs) {
     std::vector<std::unordered_map<std::string, std::vector<std::string>>> sourceResults;
     for (const auto& source : sources) {
-        sourceResults.emplace_back(std::move(source->queryRenderedFeatures(queryGeometry, zoom, bearing, layerIDs)));
+        sourceResults.emplace_back(source->queryRenderedFeatures(queryGeometry, zoom, bearing, layerIDs));
     }
 
 

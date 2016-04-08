@@ -55,7 +55,7 @@ public:
                        const std::unordered_map<std::string, std::unique_ptr<Bucket>>* buckets,
                        PlacementConfig config,
                        std::function<void(std::unique_ptr<CollisionTile>)> callback) {
-        callback(std::move(worker->redoPlacement(buckets, config)));
+        callback(worker->redoPlacement(buckets, config));
     }
 };
 

@@ -1,6 +1,8 @@
 #include <mbgl/geometry/feature_index.hpp>
 #include <mbgl/util/math.hpp>
-#include <mbgl/style/style.cpp>
+#include <mbgl/style/style.hpp>
+#include <mbgl/style/style_layer.hpp>
+#include <mbgl/layer/symbol_layer.hpp>
 #include <mbgl/util/get_geometries.hpp>
 #include <mbgl/text/collision_tile.hpp>
 #include <mbgl/util/rapidjson.hpp>
@@ -136,7 +138,7 @@ void FeatureIndex::addFeature(
 
     auto& layerIDs = bucketLayerIDs.at(indexedFeature.bucketName);
 
-    if (filterLayerIDs && !vectorsIntersect(layerIDs, filterLayerIDs.value())) return;
+    if (filterLayerIDs && !vectorsIntersect(layerIDs, *filterLayerIDs)) return;
 
     auto sourceLayer = geometryTile.getLayer(indexedFeature.sourceLayerName);
     assert(sourceLayer);
@@ -145,7 +147,7 @@ void FeatureIndex::addFeature(
 
     for (auto& layerID : layerIDs) {
 
-        if (filterLayerIDs && !vectorContains(filterLayerIDs.value(), layerID)) continue;
+        if (filterLayerIDs && !vectorContains(*filterLayerIDs, layerID)) continue;
 
         auto styleLayer = style.getLayer(layerID);
         if (!styleLayer) continue;

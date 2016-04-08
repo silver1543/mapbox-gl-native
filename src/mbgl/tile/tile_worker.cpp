@@ -99,7 +99,7 @@ TileParseResult TileWorker::parsePendingLayers(const PlacementConfig config) {
     result.state = pending.empty() ? TileData::State::parsed : TileData::State::partial;
 
     if (result.state == TileData::State::parsed) {
-        featureIndex->setCollisionTile(std::move(placeLayers(config)));
+        featureIndex->setCollisionTile(placeLayers(config));
         featureIndex->loadTree();
         result.featureIndex = std::move(featureIndex);
         result.geometryTile = std::move(geometryTile);
@@ -115,7 +115,7 @@ std::unique_ptr<CollisionTile> TileWorker::placeLayers(const PlacementConfig con
         insertBucket(p.first, std::move(p.second));
     }
     placementPending.clear();
-    return std::move(collisionTile);
+    return collisionTile;
 }
 
 std::unique_ptr<CollisionTile> TileWorker::redoPlacement(
@@ -131,7 +131,7 @@ std::unique_ptr<CollisionTile> TileWorker::redoPlacement(
         }
     }
 
-    return std::move(collisionTile);
+    return collisionTile;
 }
 
 void TileWorker::parseLayer(const StyleLayer* layer) {
