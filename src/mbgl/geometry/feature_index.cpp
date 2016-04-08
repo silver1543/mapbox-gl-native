@@ -71,12 +71,13 @@ void FeatureIndex::query(
         std::unordered_map<std::string, std::vector<std::string>>& result,
         const GeometryCollection& queryGeometry,
         const float bearing,
+        const double tileSize,
         const double scale,
         const optional<std::vector<std::string>>& filterLayerIDs,
         const GeometryTile& geometryTile,
         const Style& style) const {
 
-    const float pixelsToTileUnits = util::EXTENT / util::tileSize / scale;
+    const float pixelsToTileUnits = util::EXTENT / tileSize / scale;
 
     float additionalRadius = style.getQueryRadius() * pixelsToTileUnits;
 

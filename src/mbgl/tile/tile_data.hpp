@@ -89,6 +89,7 @@ public:
             const GeometryCollection&,
             const double,
             const double,
+            const double,
             const optional<std::vector<std::string>>&) {
         return;
     }

@@ -40,6 +40,7 @@ public:
             std::unordered_map<std::string, std::vector<std::string>>& result,
             const GeometryCollection& queryGeometry,
             const double bearing,
+            const double tileSize,
             const double scale,
             const optional<std::vector<std::string>>& layerIDs) override;
 

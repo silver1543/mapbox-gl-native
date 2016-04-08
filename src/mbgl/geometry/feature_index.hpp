@@ -59,6 +59,7 @@ class FeatureIndex {
                 std::unordered_map<std::string, std::vector<std::string>>& result,
                 const GeometryCollection& queryGeometry,
                 const float bearing,
+                const double tileSize,
                 const double scale,
                 const optional<std::vector<std::string>>& layerIDs,
                 const GeometryTile& geometryTile,

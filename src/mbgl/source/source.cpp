@@ -489,6 +489,7 @@ vec2<int16_t> coordinateToTilePoint(const TileID& tileID, const TileCoordinate& 
 struct TileQuery {
     Tile* tile;
     GeometryCollection queryGeometry;
+    double tileSize;
     double scale;
 };
 
@@ -535,7 +536,12 @@ std::unordered_map<std::string, std::vector<std::string>> Source::queryRenderedF
             if (it != tileQueries.end()) {
                 it->second.queryGeometry.push_back(std::move(tileSpaceQueryGeometry));
             } else {
-                tileQueries.emplace(integerID, TileQuery{ tilePtr, { tileSpaceQueryGeometry }, std::pow(2, zoom - tile.id.sourceZ) });
+                tileQueries.emplace(integerID, TileQuery{
+                        tilePtr,
+                        { tileSpaceQueryGeometry },
+                        util::tileSize * std::pow(2, tile.id.z - tile.id.sourceZ),
+                        std::pow(2, zoom - tile.id.z)
+                    });
             }
         }
     }
@@ -543,7 +549,7 @@ std::unordered_map<std::string, std::vector<std::string>> Source::queryRenderedF
 
     for (auto& it : tileQueries) {
         auto& tileQuery = std::get<1>(it);
-        tileQuery.tile->data->queryRenderedFeatures(result, tileQuery.queryGeometry, bearing, tileQuery.scale, layerIDs);
+        tileQuery.tile->data->queryRenderedFeatures(result, tileQuery.queryGeometry, bearing, tileQuery.tileSize, tileQuery.scale, layerIDs);
     }
 
     return result;
