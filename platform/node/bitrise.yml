@@ -33,7 +33,7 @@ workflows:
             brew install awscli homebrew/versions/node4-lts
             brew link homebrew/versions/node4-lts
             BUILDTYPE=Debug make node
-            node platform/node/test/query.test.js || result=$?
+            lldb -batch -o 'r' -o 'thread backtrace all' node platform/node/test/query.test.js || result=$?
             ./platform/node/scripts/after_script.sh ${BITRISE_BUILD_NUMBER} ${BITRISE_GIT_TAG:-}
             exit ${result:-0}
     - slack:
