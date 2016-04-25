@@ -14,7 +14,7 @@
 #include <mbgl/text/shaping.hpp>
 #include <mbgl/text/quads.hpp>
 #include <mbgl/style/filter.hpp>
-#include <mbgl/layer/symbol_layer.hpp>
+#include <mbgl/layer/symbol_layer_impl.hpp>
 
 #include <memory>
 #include <map>
@@ -73,7 +73,7 @@ public:
     ~SymbolBucket() override;
 
     void upload(gl::GLObjectStore&) override;
-    void render(Painter&, const StyleLayer&, const TileID&, const mat4&) override;
+    void render(Painter&, const Layer&, const TileID&, const mat4&) override;
     bool hasData() const override;
     bool hasTextData() const;
     bool hasIconData() const;

@@ -27,14 +27,14 @@ class GlyphStore;
 class SpriteStore;
 class SpriteAtlas;
 class LineAtlas;
-class StyleLayer;
+class Layer;
 class Tile;
 class Bucket;
 class StyleUpdateParameters;
 class TileCoordinate;
 
 struct RenderItem {
-    inline RenderItem(const StyleLayer& layer_,
+    inline RenderItem(const Layer& layer_,
                       const Tile* tile_ = nullptr,
                       Bucket* bucket_ = nullptr)
         : tile(tile_), bucket(bucket_), layer(layer_) {
@@ -42,7 +42,7 @@ struct RenderItem {
 
     const Tile* const tile;
     Bucket* const bucket;
-    const StyleLayer& layer;
+    const Layer& layer;
 };
 
 struct RenderData {
@@ -95,9 +95,9 @@ public:
     Source* getSource(const std::string& id) const;
     void addSource(std::unique_ptr<Source>);
 
-    std::vector<std::unique_ptr<StyleLayer>> getLayers() const;
-    StyleLayer* getLayer(const std::string& id) const;
-    void addLayer(std::unique_ptr<StyleLayer>,
+    std::vector<std::unique_ptr<Layer>> getLayers() const;
+    Layer* getLayer(const std::string& id) const;
+    void addLayer(std::unique_ptr<Layer>,
                   optional<std::string> beforeLayerID = {});
     void removeLayer(const std::string& layerID);
 
@@ -131,11 +131,11 @@ public:
 
 private:
     std::vector<std::unique_ptr<Source>> sources;
-    std::vector<std::unique_ptr<StyleLayer>> layers;
+    std::vector<std::unique_ptr<Layer>> layers;
     std::vector<std::string> classes;
     optional<PropertyTransition> transitionProperties;
 
-    std::vector<std::unique_ptr<StyleLayer>>::const_iterator findLayer(const std::string& layerID) const;
+    std::vector<std::unique_ptr<Layer>>::const_iterator findLayer(const std::string& layerID) const;
 
     // GlyphStore::Observer implementation.
     void onGlyphsLoaded(const FontStack&, const GlyphRange&) override;

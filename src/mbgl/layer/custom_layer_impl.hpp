@@ -1,29 +1,28 @@
 #ifndef MBGL_CUSTOM_LAYER
 #define MBGL_CUSTOM_LAYER
 
-#include <mbgl/style/style_layer.hpp>
+#include <mbgl/layer/layer_impl.hpp>
+#include <mbgl/layer/custom_layer.hpp>
 
 namespace mbgl {
 
 class TransformState;
 
-class CustomLayer : public StyleLayer {
+class CustomLayer::Impl : public Layer::Impl {
 public:
-    CustomLayer(const std::string& id,
-                CustomLayerInitializeFunction,
-                CustomLayerRenderFunction,
-                CustomLayerDeinitializeFunction,
-                void* context);
+    Impl(const std::string& id,
+         CustomLayerInitializeFunction,
+         CustomLayerRenderFunction,
+         CustomLayerDeinitializeFunction,
+         void* context);
 
-    CustomLayer(const CustomLayer&);
-    ~CustomLayer();
+    Impl(const Impl&);
+    ~Impl() final;
 
     void initialize();
     void render(const TransformState&) const;
 
 private:
-    std::unique_ptr<StyleLayer> clone() const final;
-
     void parseLayout(const JSValue&) final {}
     void parsePaints(const JSValue&) final {}
 
@@ -37,11 +36,6 @@ private:
     CustomLayerDeinitializeFunction deinitializeFn = nullptr;
     void* context = nullptr;
 };
-
-template <>
-inline bool StyleLayer::is<CustomLayer>() const {
-    return type == Type::Custom;
-}
 
 } // namespace mbgl
 

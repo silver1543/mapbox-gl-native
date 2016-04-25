@@ -8,7 +8,7 @@ namespace mbgl {
 
 class FileSource;
 class AsyncRequest;
-class StyleLayer;
+class Layer;
 namespace gl { class TexturePool; }
 
 class RasterTileData : public TileData {
@@ -23,7 +23,7 @@ public:
     ~RasterTileData();
 
     void cancel() override;
-    Bucket* getBucket(StyleLayer const &layer_desc) override;
+    Bucket* getBucket(const Layer&) override;
     bool hasData() const override;
 
 private:

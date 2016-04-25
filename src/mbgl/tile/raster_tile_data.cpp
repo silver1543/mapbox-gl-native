@@ -70,7 +70,7 @@ RasterTileData::~RasterTileData() {
     cancel();
 }
 
-Bucket* RasterTileData::getBucket(StyleLayer const&) {
+Bucket* RasterTileData::getBucket(const Layer&) {
     return bucket.get();
 }
 

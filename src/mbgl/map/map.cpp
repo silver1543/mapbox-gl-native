@@ -7,7 +7,6 @@
 #include <mbgl/annotation/shape_annotation.hpp>
 #include <mbgl/annotation/annotation_manager.hpp>
 #include <mbgl/style/style.hpp>
-#include <mbgl/style/style_layer.hpp>
 #include <mbgl/style/property_transition.hpp>
 #include <mbgl/style/style_update_parameters.hpp>
 #include <mbgl/layer/custom_layer.hpp>

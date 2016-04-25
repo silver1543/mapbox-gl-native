@@ -136,7 +136,7 @@ void Painter::renderSymbol(SymbolBucket& bucket, const SymbolLayer& layer, const
         return;
     }
 
-    const auto& paint = layer.paint;
+    const auto& paint = layer.impl->paint;
     const auto& layout = bucket.layout;
 
     config.depthMask = GL_FALSE;
@@ -172,10 +172,10 @@ void Painter::renderSymbol(SymbolBucket& bucket, const SymbolLayer& layer, const
                 ? state.getAngle()
                 : 0;
 
-        const float fontSize = layer.iconSize;
+        const float fontSize = layer.impl->iconSize;
         const float fontScale = fontSize / 1.0f;
 
-        SpriteAtlas* activeSpriteAtlas = layer.spriteAtlas;
+        SpriteAtlas* activeSpriteAtlas = layer.impl->spriteAtlas;
         const bool iconScaled = fontScale != 1 || frame.pixelRatio != activeSpriteAtlas->getPixelRatio() || bucket.iconsNeedLinear;
         const bool iconTransformed = layout.iconRotationAlignment == RotationAlignmentType::Map || angleOffset != 0 || state.getPitch() != 0;
         config.activeTexture = GL_TEXTURE0;
@@ -198,7 +198,7 @@ void Painter::renderSymbol(SymbolBucket& bucket, const SymbolLayer& layer, const
                       paint.iconHaloBlur,
                       paint.iconTranslate,
                       paint.iconTranslateAnchor,
-                      layer.iconSize);
+                      layer.impl->iconSize);
         } else {
             mat4 vtxMatrix = translatedMatrix(matrix, paint.iconTranslate, id, paint.iconTranslateAnchor);
 
@@ -274,7 +274,7 @@ void Painter::renderSymbol(SymbolBucket& bucket, const SymbolLayer& layer, const
                   paint.textHaloBlur,
                   paint.textTranslate,
                   paint.textTranslateAnchor,
-                  layer.textSize);
+                  layer.impl->textSize);
     }
 
     if (bucket.hasCollisionBoxData()) {

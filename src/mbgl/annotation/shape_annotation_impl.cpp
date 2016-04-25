@@ -30,53 +30,49 @@ void ShapeAnnotationImpl::updateStyle(Style& style) {
     if (shape.properties.is<LineAnnotationProperties>()) {
         type = geojsonvt::ProjectedFeatureType::LineString;
 
-        std::unique_ptr<LineLayer> layer = std::make_unique<LineLayer>();
-        layer->layout.lineJoin = LineJoinType::Round;
+        std::unique_ptr<LineLayer> layer = std::make_unique<LineLayer>(layerID);
+        layer->setSource(AnnotationManager::SourceID, layerID);
 
         const LineAnnotationProperties& properties = shape.properties.get<LineAnnotationProperties>();
-        layer->paint.lineOpacity = properties.opacity;
-        layer->paint.lineWidth = properties.width;
-        layer->paint.lineColor = properties.color;
-
-        layer->id = layerID;
-        layer->source = AnnotationManager::SourceID;
-        layer->sourceLayer = layer->id;
+        layer->setLineJoin(LineJoinType::Round);
+        layer->setLineOpacity(properties.opacity);
+        layer->setLineWidth(properties.width);
+        layer->setLineColor(properties.color);
 
         style.addLayer(std::move(layer), AnnotationManager::PointLayerID);
 
     } else if (shape.properties.is<FillAnnotationProperties>()) {
         type = geojsonvt::ProjectedFeatureType::Polygon;
 
-        std::unique_ptr<FillLayer> layer = std::make_unique<FillLayer>();
+        std::unique_ptr<FillLayer> layer = std::make_unique<FillLayer>(layerID);
+        layer->setSource(AnnotationManager::SourceID, layerID);
 
         const FillAnnotationProperties& properties = shape.properties.get<FillAnnotationProperties>();
-        layer->paint.fillOpacity = properties.opacity;
-        layer->paint.fillColor = properties.color;
-        layer->paint.fillOutlineColor = properties.outlineColor;
-
-        layer->id = layerID;
-        layer->source = AnnotationManager::SourceID;
-        layer->sourceLayer = layer->id;
+        layer->setFillOpacity(properties.opacity);
+        layer->setFillColor(properties.color);
+        layer->setFillOutlineColor(properties.outlineColor);
 
         style.addLayer(std::move(layer), AnnotationManager::PointLayerID);
 
     } else {
-        const StyleLayer* sourceLayer = style.getLayer(shape.properties.get<std::string>());
-        if (!sourceLayer) return;
+        const Layer* sourceLayer = style.getLayer(shape.properties.get<std::string>());
+        if (sourceLayer && sourceLayer->is<LineLayer>()) {
+            type = geojsonvt::ProjectedFeatureType::LineString;
 
-        std::unique_ptr<StyleLayer> layer = sourceLayer->clone();
+            std::unique_ptr<Layer> layer = sourceLayer->copy(layerID, "");
+            layer->as<LineLayer>()->setSource(AnnotationManager::SourceID, layerID);
+            layer->as<LineLayer>()->setVisibility(VisibilityType::Visible);
 
-        type = layer->is<LineLayer>()
-            ? geojsonvt::ProjectedFeatureType::LineString
-            : geojsonvt::ProjectedFeatureType::Polygon;
+            style.addLayer(std::move(layer), sourceLayer->getID());
+        } else if (sourceLayer && sourceLayer->is<FillLayer>()) {
+            type = geojsonvt::ProjectedFeatureType::Polygon;
 
-        layer->id = layerID;
-        layer->ref = "";
-        layer->source = AnnotationManager::SourceID;
-        layer->sourceLayer = layer->id;
-        layer->visibility = VisibilityType::Visible;
+            std::unique_ptr<Layer> layer = sourceLayer->copy(layerID, "");
+            layer->as<FillLayer>()->setSource(AnnotationManager::SourceID, layerID);
+            layer->as<FillLayer>()->setVisibility(VisibilityType::Visible);
 
-        style.addLayer(std::move(layer), sourceLayer->id);
+            style.addLayer(std::move(layer), sourceLayer->getID());
+        }
     }
 }
 

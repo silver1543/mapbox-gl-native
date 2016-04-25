@@ -1,7 +1,7 @@
 #ifndef MBGL_STYLE_FUNCTION_EVALUATOR
 #define MBGL_STYLE_FUNCTION_EVALUATOR
 
-#include <mbgl/style/function.hpp>
+#include <mbgl/style/types.hpp>
 #include <mbgl/util/interpolate.hpp>
 
 namespace mbgl {

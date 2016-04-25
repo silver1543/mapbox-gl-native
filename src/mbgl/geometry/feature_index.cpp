@@ -1,7 +1,8 @@
 #include <mbgl/geometry/feature_index.hpp>
 #include <mbgl/util/math.hpp>
 #include <mbgl/style/style.hpp>
-#include <mbgl/style/style_layer.hpp>
+#include <mbgl/style/layer.hpp>
+#include <mbgl/layer/layer_impl.hpp>
 #include <mbgl/layer/symbol_layer.hpp>
 #include <mbgl/util/get_geometries.hpp>
 #include <mbgl/text/collision_tile.hpp>
@@ -141,7 +142,7 @@ void FeatureIndex::addFeature(
 
         if (!styleLayer->is<SymbolLayer>()) {
             auto geometries = getGeometries(*geometryTileFeature);
-            if (!styleLayer->queryIntersectsGeometry(queryGeometry, geometries, bearing, pixelsToTileUnits)) continue;
+            if (!styleLayer->baseImpl->queryIntersectsGeometry(queryGeometry, geometries, bearing, pixelsToTileUnits)) continue;
         }
 
         Feature feature { mapbox::geometry::point<double>() };
