@@ -40,7 +40,7 @@ public:
     // Private implementation
 
     class Impl;
-    Impl* impl;
+    Impl* const impl;
 
     CircleLayer(const Impl&);
     CircleLayer(const CircleLayer&) = delete;

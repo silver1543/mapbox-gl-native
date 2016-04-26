@@ -43,7 +43,7 @@ public:
     // Private implementation
 
     class Impl;
-    Impl* impl;
+    Impl* const impl;
 
     FillLayer(const Impl&);
     FillLayer(const FillLayer&) = delete;

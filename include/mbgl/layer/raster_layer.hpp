@@ -42,7 +42,7 @@ public:
     // Private implementation
 
     class Impl;
-    Impl* impl;
+    Impl* const impl;
 
     RasterLayer(const Impl&);
     RasterLayer(const RasterLayer&) = delete;

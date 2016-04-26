@@ -161,7 +161,7 @@ public:
     // Private implementation
 
     class Impl;
-    Impl* impl;
+    Impl* const impl;
 
     SymbolLayer(const Impl&);
     SymbolLayer(const SymbolLayer&) = delete;

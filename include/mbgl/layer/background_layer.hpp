@@ -25,7 +25,7 @@ public:
     // Private implementation
 
     class Impl;
-    Impl* impl;
+    Impl* const impl;
 
     BackgroundLayer(const Impl&);
     BackgroundLayer(const BackgroundLayer&) = delete;

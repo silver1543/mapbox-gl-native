@@ -68,7 +68,7 @@ public:
     // Private implementation
 
     class Impl;
-    Impl* impl;
+    Impl* const impl;
 
     LineLayer(const Impl&);
     LineLayer(const LineLayer&) = delete;

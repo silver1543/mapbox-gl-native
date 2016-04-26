@@ -121,7 +121,7 @@ public:
     // Private implementation
 
     class Impl;
-    Impl* impl;
+    Impl* const impl;
 
     <%- camelize(type) %>Layer(const Impl&);
     <%- camelize(type) %>Layer(const <%- camelize(type) %>Layer&) = delete;
