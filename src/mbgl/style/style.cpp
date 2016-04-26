@@ -111,7 +111,7 @@ std::vector<std::unique_ptr<Layer>> Style::getLayers() const {
     std::vector<std::unique_ptr<Layer>> result;
     result.reserve(layers.size());
     for (const auto& layer : layers) {
-        result.push_back(layer->clone());
+        result.push_back(layer->baseImpl->clone());
     }
     return result;
 }

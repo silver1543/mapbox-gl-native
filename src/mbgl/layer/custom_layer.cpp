@@ -12,15 +12,11 @@ CustomLayer::CustomLayer(const std::string& layerID,
     , impl(static_cast<Impl*>(baseImpl.get())) {
 }
 
-CustomLayer::CustomLayer(const CustomLayer& other)
-    : Layer(Type::Custom, std::make_unique<Impl>(*other.impl))
+CustomLayer::CustomLayer(const Impl& other)
+    : Layer(Type::Custom, std::make_unique<Impl>(other))
     , impl(static_cast<Impl*>(baseImpl.get())) {
 }
 
 CustomLayer::~CustomLayer() = default;
-
-std::unique_ptr<Layer> CustomLayer::clone() const {
-    return std::make_unique<CustomLayer>(*this);
-}
 
 } // namespace mbgl

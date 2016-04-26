@@ -11,7 +11,6 @@ namespace mbgl {
 class SymbolLayer : public Layer {
 public:
     SymbolLayer(const std::string& layerID);
-    SymbolLayer(const SymbolLayer&);
     ~SymbolLayer() final;
 
     // Source
@@ -161,10 +160,11 @@ public:
 
     // Private implementation
 
-    std::unique_ptr<Layer> clone() const final;
-
     class Impl;
     Impl* impl;
+
+    SymbolLayer(const Impl&);
+    SymbolLayer(const SymbolLayer&) = delete;
 };
 
 template <>

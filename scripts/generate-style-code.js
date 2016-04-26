@@ -86,7 +86,6 @@ namespace mbgl {
 class <%- camelize(type) %>Layer : public Layer {
 public:
     <%- camelize(type) %>Layer(const std::string& layerID);
-    <%- camelize(type) %>Layer(const <%- camelize(type) %>Layer&);
     ~<%- camelize(type) %>Layer() final;
 
 <% if (type === 'raster') { -%>
@@ -121,10 +120,11 @@ public:
 <% } -%>
     // Private implementation
 
-    std::unique_ptr<Layer> clone() const final;
-
     class Impl;
     Impl* impl;
+
+    <%- camelize(type) %>Layer(const Impl&);
+    <%- camelize(type) %>Layer(const <%- camelize(type) %>Layer&) = delete;
 };
 
 template <>
@@ -153,14 +153,14 @@ namespace mbgl {
     impl->id = layerID;
 }
 
-<%- camelize(type) %>Layer::<%- camelize(type) %>Layer(const <%- camelize(type) %>Layer& other)
-    : Layer(Type::<%- camelize(type) %>, std::make_unique<Impl>(*other.impl))
+<%- camelize(type) %>Layer::<%- camelize(type) %>Layer(const Impl& other)
+    : Layer(Type::<%- camelize(type) %>, std::make_unique<Impl>(other))
     , impl(static_cast<Impl*>(baseImpl.get())) {
 }
 
 <%- camelize(type) %>Layer::~<%- camelize(type) %>Layer() = default;
 
-std::unique_ptr<Layer> <%- camelize(type) %>Layer::clone() const {
+std::unique_ptr<Layer> <%- camelize(type) %>Layer::Impl::clone() const {
     return std::make_unique<<%- camelize(type) %>Layer>(*this);
 }
 

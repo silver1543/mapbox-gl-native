@@ -11,7 +11,6 @@ namespace mbgl {
 class LineLayer : public Layer {
 public:
     LineLayer(const std::string& layerID);
-    LineLayer(const LineLayer&);
     ~LineLayer() final;
 
     // Source
@@ -68,10 +67,11 @@ public:
 
     // Private implementation
 
-    std::unique_ptr<Layer> clone() const final;
-
     class Impl;
     Impl* impl;
+
+    LineLayer(const Impl&);
+    LineLayer(const LineLayer&) = delete;
 };
 
 template <>

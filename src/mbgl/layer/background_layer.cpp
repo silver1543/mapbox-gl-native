@@ -11,14 +11,14 @@ BackgroundLayer::BackgroundLayer(const std::string& layerID)
     impl->id = layerID;
 }
 
-BackgroundLayer::BackgroundLayer(const BackgroundLayer& other)
-    : Layer(Type::Background, std::make_unique<Impl>(*other.impl))
+BackgroundLayer::BackgroundLayer(const Impl& other)
+    : Layer(Type::Background, std::make_unique<Impl>(other))
     , impl(static_cast<Impl*>(baseImpl.get())) {
 }
 
 BackgroundLayer::~BackgroundLayer() = default;
 
-std::unique_ptr<Layer> BackgroundLayer::clone() const {
+std::unique_ptr<Layer> BackgroundLayer::Impl::clone() const {
     return std::make_unique<BackgroundLayer>(*this);
 }
 

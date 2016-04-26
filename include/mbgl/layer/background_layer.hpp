@@ -9,7 +9,6 @@ namespace mbgl {
 class BackgroundLayer : public Layer {
 public:
     BackgroundLayer(const std::string& layerID);
-    BackgroundLayer(const BackgroundLayer&);
     ~BackgroundLayer() final;
 
     // Paint properties
@@ -25,10 +24,11 @@ public:
 
     // Private implementation
 
-    std::unique_ptr<Layer> clone() const final;
-
     class Impl;
     Impl* impl;
+
+    BackgroundLayer(const Impl&);
+    BackgroundLayer(const BackgroundLayer&) = delete;
 };
 
 template <>

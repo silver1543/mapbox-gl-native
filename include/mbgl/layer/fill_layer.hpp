@@ -9,7 +9,6 @@ namespace mbgl {
 class FillLayer : public Layer {
 public:
     FillLayer(const std::string& layerID);
-    FillLayer(const FillLayer&);
     ~FillLayer() final;
 
     // Source
@@ -43,10 +42,11 @@ public:
 
     // Private implementation
 
-    std::unique_ptr<Layer> clone() const final;
-
     class Impl;
     Impl* impl;
+
+    FillLayer(const Impl&);
+    FillLayer(const FillLayer&) = delete;
 };
 
 template <>

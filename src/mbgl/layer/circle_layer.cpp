@@ -11,14 +11,14 @@ CircleLayer::CircleLayer(const std::string& layerID)
     impl->id = layerID;
 }
 
-CircleLayer::CircleLayer(const CircleLayer& other)
-    : Layer(Type::Circle, std::make_unique<Impl>(*other.impl))
+CircleLayer::CircleLayer(const Impl& other)
+    : Layer(Type::Circle, std::make_unique<Impl>(other))
     , impl(static_cast<Impl*>(baseImpl.get())) {
 }
 
 CircleLayer::~CircleLayer() = default;
 
-std::unique_ptr<Layer> CircleLayer::clone() const {
+std::unique_ptr<Layer> CircleLayer::Impl::clone() const {
     return std::make_unique<CircleLayer>(*this);
 }
 

@@ -11,14 +11,14 @@ FillLayer::FillLayer(const std::string& layerID)
     impl->id = layerID;
 }
 
-FillLayer::FillLayer(const FillLayer& other)
-    : Layer(Type::Fill, std::make_unique<Impl>(*other.impl))
+FillLayer::FillLayer(const Impl& other)
+    : Layer(Type::Fill, std::make_unique<Impl>(other))
     , impl(static_cast<Impl*>(baseImpl.get())) {
 }
 
 FillLayer::~FillLayer() = default;
 
-std::unique_ptr<Layer> FillLayer::clone() const {
+std::unique_ptr<Layer> FillLayer::Impl::clone() const {
     return std::make_unique<FillLayer>(*this);
 }
 

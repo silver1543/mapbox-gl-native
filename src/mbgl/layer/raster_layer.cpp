@@ -11,14 +11,14 @@ RasterLayer::RasterLayer(const std::string& layerID)
     impl->id = layerID;
 }
 
-RasterLayer::RasterLayer(const RasterLayer& other)
-    : Layer(Type::Raster, std::make_unique<Impl>(*other.impl))
+RasterLayer::RasterLayer(const Impl& other)
+    : Layer(Type::Raster, std::make_unique<Impl>(other))
     , impl(static_cast<Impl*>(baseImpl.get())) {
 }
 
 RasterLayer::~RasterLayer() = default;
 
-std::unique_ptr<Layer> RasterLayer::clone() const {
+std::unique_ptr<Layer> RasterLayer::Impl::clone() const {
     return std::make_unique<RasterLayer>(*this);
 }
 

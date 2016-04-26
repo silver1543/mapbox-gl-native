@@ -28,6 +28,10 @@ CustomLayer::Impl::~Impl() {
     }
 }
 
+std::unique_ptr<Layer> CustomLayer::Impl::clone() const {
+    return std::make_unique<CustomLayer>(*this);
+}
+
 void CustomLayer::Impl::initialize() {
     assert(initializeFn);
     initializeFn(context);

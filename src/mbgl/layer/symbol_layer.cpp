@@ -11,14 +11,14 @@ SymbolLayer::SymbolLayer(const std::string& layerID)
     impl->id = layerID;
 }
 
-SymbolLayer::SymbolLayer(const SymbolLayer& other)
-    : Layer(Type::Symbol, std::make_unique<Impl>(*other.impl))
+SymbolLayer::SymbolLayer(const Impl& other)
+    : Layer(Type::Symbol, std::make_unique<Impl>(other))
     , impl(static_cast<Impl*>(baseImpl.get())) {
 }
 
 SymbolLayer::~SymbolLayer() = default;
 
-std::unique_ptr<Layer> SymbolLayer::clone() const {
+std::unique_ptr<Layer> SymbolLayer::Impl::clone() const {
     return std::make_unique<SymbolLayer>(*this);
 }
 

@@ -49,9 +49,6 @@ public:
     VisibilityType getVisibility() const;
     void setVisibility(VisibilityType);
 
-    // Create an identical copy of this layer.
-    virtual std::unique_ptr<Layer> clone() const = 0;
-
     // Create a new layer with the specified `id` and `ref`. All other properties
     // are copied from this layer.
     std::unique_ptr<Layer> copy(const std::string& id,

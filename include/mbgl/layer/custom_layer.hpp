@@ -50,15 +50,15 @@ public:
                 CustomLayerRenderFunction,
                 CustomLayerDeinitializeFunction,
                 void* context);
-    CustomLayer(const CustomLayer&);
     ~CustomLayer() final;
 
     // Private implementation
 
-    std::unique_ptr<Layer> clone() const final;
-
     class Impl;
     Impl* impl;
+
+    CustomLayer(const Impl&);
+    CustomLayer(const CustomLayer&) = delete;
 };
 
 template <>

@@ -23,7 +23,7 @@ void Layer::setVisibility(VisibilityType value) {
 
 std::unique_ptr<Layer> Layer::copy(const std::string& id,
                                    const std::string& ref) const {
-    std::unique_ptr<Layer> result = clone();
+    std::unique_ptr<Layer> result = baseImpl->clone();
     result->baseImpl->id = id;
     result->baseImpl->ref = ref;
     return result;

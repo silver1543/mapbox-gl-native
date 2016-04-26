@@ -35,6 +35,9 @@ class Layer::Impl {
 public:
     virtual ~Impl() = default;
 
+    // Create an identical copy of this layer.
+    virtual std::unique_ptr<Layer> clone() const = 0;
+
     virtual void parseLayout(const JSValue& value) = 0;
     virtual void parsePaints(const JSValue& value) = 0;
 

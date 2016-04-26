@@ -11,14 +11,14 @@ LineLayer::LineLayer(const std::string& layerID)
     impl->id = layerID;
 }
 
-LineLayer::LineLayer(const LineLayer& other)
-    : Layer(Type::Line, std::make_unique<Impl>(*other.impl))
+LineLayer::LineLayer(const Impl& other)
+    : Layer(Type::Line, std::make_unique<Impl>(other))
     , impl(static_cast<Impl*>(baseImpl.get())) {
 }
 
 LineLayer::~LineLayer() = default;
 
-std::unique_ptr<Layer> LineLayer::clone() const {
+std::unique_ptr<Layer> LineLayer::Impl::clone() const {
     return std::make_unique<LineLayer>(*this);
 }
 

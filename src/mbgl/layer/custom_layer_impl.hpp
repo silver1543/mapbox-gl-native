@@ -23,6 +23,8 @@ public:
     void render(const TransformState&) const;
 
 private:
+    std::unique_ptr<Layer> clone() const override;
+
     void parseLayout(const JSValue&) final {}
     void parsePaints(const JSValue&) final {}
 

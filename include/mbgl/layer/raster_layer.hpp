@@ -9,7 +9,6 @@ namespace mbgl {
 class RasterLayer : public Layer {
 public:
     RasterLayer(const std::string& layerID);
-    RasterLayer(const RasterLayer&);
     ~RasterLayer() final;
 
     // Source
@@ -42,10 +41,11 @@ public:
 
     // Private implementation
 
-    std::unique_ptr<Layer> clone() const final;
-
     class Impl;
     Impl* impl;
+
+    RasterLayer(const Impl&);
+    RasterLayer(const RasterLayer&) = delete;
 };
 
 template <>

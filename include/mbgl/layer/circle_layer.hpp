@@ -9,7 +9,6 @@ namespace mbgl {
 class CircleLayer : public Layer {
 public:
     CircleLayer(const std::string& layerID);
-    CircleLayer(const CircleLayer&);
     ~CircleLayer() final;
 
     // Source
@@ -40,10 +39,11 @@ public:
 
     // Private implementation
 
-    std::unique_ptr<Layer> clone() const final;
-
     class Impl;
     Impl* impl;
+
+    CircleLayer(const Impl&);
+    CircleLayer(const CircleLayer&) = delete;
 };
 
 template <>
