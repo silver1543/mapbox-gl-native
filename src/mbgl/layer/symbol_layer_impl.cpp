@@ -48,36 +48,8 @@ std::unique_ptr<Bucket> SymbolLayer::Impl::createBucket(StyleBucketParameters& p
         bucket->layout.iconRotationAlignment.value = RotationAlignmentType::Map;
         bucket->layout.textRotationAlignment.value = RotationAlignmentType::Map;
     };
-    bucket->layout.symbolSpacing.calculate(p);
-    bucket->layout.symbolAvoidEdges.calculate(p);
 
-    bucket->layout.iconAllowOverlap.calculate(p);
-    bucket->layout.iconIgnorePlacement.calculate(p);
-    bucket->layout.iconOptional.calculate(p);
-    bucket->layout.iconRotationAlignment.calculate(p);
-    bucket->layout.iconImage.calculate(p);
-    bucket->layout.iconPadding.calculate(p);
-    bucket->layout.iconRotate.calculate(p);
-    bucket->layout.iconKeepUpright.calculate(p);
-    bucket->layout.iconOffset.calculate(p);
-
-    bucket->layout.textRotationAlignment.calculate(p);
-    bucket->layout.textField.calculate(p);
-    bucket->layout.textFont.calculate(p);
-    bucket->layout.textMaxWidth.calculate(p);
-    bucket->layout.textLineHeight.calculate(p);
-    bucket->layout.textLetterSpacing.calculate(p);
-    bucket->layout.textMaxAngle.calculate(p);
-    bucket->layout.textRotate.calculate(p);
-    bucket->layout.textPadding.calculate(p);
-    bucket->layout.textIgnorePlacement.calculate(p);
-    bucket->layout.textOptional.calculate(p);
-    bucket->layout.textJustify.calculate(p);
-    bucket->layout.textAnchor.calculate(p);
-    bucket->layout.textKeepUpright.calculate(p);
-    bucket->layout.textTransform.calculate(p);
-    bucket->layout.textOffset.calculate(p);
-    bucket->layout.textAllowOverlap.calculate(p);
+    bucket->layout.recalculate(p);
 
     bucket->layout.iconSize.calculate(StyleCalculationParameters(18));
     bucket->layout.textSize.calculate(StyleCalculationParameters(18));

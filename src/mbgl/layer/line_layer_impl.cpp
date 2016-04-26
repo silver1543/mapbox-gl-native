@@ -40,12 +40,7 @@ std::unique_ptr<Bucket> LineLayer::Impl::createBucket(StyleBucketParameters& par
     auto bucket = std::make_unique<LineBucket>(parameters.tileID.overscaleFactor());
 
     bucket->layout = layout;
-
-    StyleCalculationParameters p(parameters.tileID.z);
-    bucket->layout.lineCap.calculate(p);
-    bucket->layout.lineJoin.calculate(p);
-    bucket->layout.lineMiterLimit.calculate(p);
-    bucket->layout.lineRoundLimit.calculate(p);
+    bucket->layout.recalculate(StyleCalculationParameters(parameters.tileID.z));
 
     auto& name = bucketName();
     parameters.eachFilteredFeature(filter, [&] (const auto& feature, std::size_t index, const std::string& layerName) {

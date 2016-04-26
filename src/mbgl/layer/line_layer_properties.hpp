@@ -14,6 +14,7 @@ class StyleCalculationParameters;
 class LineLayoutProperties {
 public:
     void parse(const JSValue&);
+    void recalculate(const StyleCalculationParameters&);
 
     LayoutProperty<LineCapType> lineCap { LineCapType::Butt };
     LayoutProperty<LineJoinType> lineJoin { LineJoinType::Miter };

@@ -38,6 +38,40 @@ void SymbolLayoutProperties::parse(const JSValue& value) {
     textOptional.parse("text-optional", value);
 }
 
+void SymbolLayoutProperties::recalculate(const StyleCalculationParameters& parameters) {
+    symbolPlacement.calculate(parameters);
+    symbolSpacing.calculate(parameters);
+    symbolAvoidEdges.calculate(parameters);
+    iconAllowOverlap.calculate(parameters);
+    iconIgnorePlacement.calculate(parameters);
+    iconOptional.calculate(parameters);
+    iconRotationAlignment.calculate(parameters);
+    iconSize.calculate(parameters);
+    iconImage.calculate(parameters);
+    iconRotate.calculate(parameters);
+    iconPadding.calculate(parameters);
+    iconKeepUpright.calculate(parameters);
+    iconOffset.calculate(parameters);
+    textRotationAlignment.calculate(parameters);
+    textField.calculate(parameters);
+    textFont.calculate(parameters);
+    textSize.calculate(parameters);
+    textMaxWidth.calculate(parameters);
+    textLineHeight.calculate(parameters);
+    textLetterSpacing.calculate(parameters);
+    textJustify.calculate(parameters);
+    textAnchor.calculate(parameters);
+    textMaxAngle.calculate(parameters);
+    textRotate.calculate(parameters);
+    textPadding.calculate(parameters);
+    textKeepUpright.calculate(parameters);
+    textTransform.calculate(parameters);
+    textOffset.calculate(parameters);
+    textAllowOverlap.calculate(parameters);
+    textIgnorePlacement.calculate(parameters);
+    textOptional.calculate(parameters);
+}
+
 void SymbolPaintProperties::parse(const JSValue& value) {
     iconOpacity.parse("icon-opacity", value);
     iconColor.parse("icon-color", value);

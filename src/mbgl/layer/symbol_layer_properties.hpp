@@ -14,6 +14,7 @@ class StyleCalculationParameters;
 class SymbolLayoutProperties {
 public:
     void parse(const JSValue&);
+    void recalculate(const StyleCalculationParameters&);
 
     LayoutProperty<SymbolPlacementType> symbolPlacement { SymbolPlacementType::Point };
     LayoutProperty<float> symbolSpacing { 250 };

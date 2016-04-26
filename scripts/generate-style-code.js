@@ -239,6 +239,7 @@ class StyleCalculationParameters;
 class <%- camelize(type) %>LayoutProperties {
 public:
     void parse(const JSValue&);
+    void recalculate(const StyleCalculationParameters&);
 
 <% for (const property of layoutProperties) { -%>
     LayoutProperty<<%- propertyType(property) %>> <%- camelizeWithLeadingLowercase(property.name) %> { <%- defaultValue(property) %> };
@@ -281,6 +282,12 @@ namespace mbgl {
 void <%- camelize(type) %>LayoutProperties::parse(const JSValue& value) {
 <% for (const property of layoutProperties) { -%>
     <%- camelizeWithLeadingLowercase(property.name) %>.parse(<%- JSON.stringify(property.name) %>, value);
+<% } -%>
+}
+
+void <%- camelize(type) %>LayoutProperties::recalculate(const StyleCalculationParameters& parameters) {
+<% for (const property of layoutProperties) { -%>
+    <%- camelizeWithLeadingLowercase(property.name) %>.calculate(parameters);
 <% } -%>
 }
 

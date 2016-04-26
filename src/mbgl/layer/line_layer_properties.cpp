@@ -11,6 +11,13 @@ void LineLayoutProperties::parse(const JSValue& value) {
     lineRoundLimit.parse("line-round-limit", value);
 }
 
+void LineLayoutProperties::recalculate(const StyleCalculationParameters& parameters) {
+    lineCap.calculate(parameters);
+    lineJoin.calculate(parameters);
+    lineMiterLimit.calculate(parameters);
+    lineRoundLimit.calculate(parameters);
+}
+
 void LinePaintProperties::parse(const JSValue& value) {
     lineOpacity.parse("line-opacity", value);
     lineColor.parse("line-color", value);
