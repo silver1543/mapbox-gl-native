@@ -1,4 +1,4 @@
-// This file is generated. Do not edit.
+// This file is generated. Edit scripts/generate-style-code.js, then run `make style-code`.
 
 #include <mbgl/layer/background_layer_properties.hpp>
 

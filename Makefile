@@ -208,6 +208,10 @@ test-qt: node_modules/express
 
 #### Miscellaneous targets #####################################################
 
+.PHONY: style-code
+style-code:
+	node scripts/generate-style-code.js
+
 .PHONY: linux
 linux: glfw-app render offline
 

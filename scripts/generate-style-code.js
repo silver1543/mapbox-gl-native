@@ -140,7 +140,7 @@ const layerCpp = ejs.compile(`<%
   const layoutProperties = locals.layoutProperties;
   const paintProperties = locals.paintProperties;
 -%>
-// This file is generated. Do not edit.
+// This file is generated. Edit scripts/generate-style-code.js, then run \`make style-code\`.
 
 #include <mbgl/layer/<%- type %>_layer.hpp>
 #include <mbgl/layer/<%- type %>_layer_impl.hpp>
@@ -222,7 +222,7 @@ const propertiesHpp = ejs.compile(`<%
   const layoutProperties = locals.layoutProperties;
   const paintProperties = locals.paintProperties;
 -%>
-// This file is generated. Do not edit.
+// This file is generated. Edit scripts/generate-style-code.js, then run \`make style-code\`.
 
 #pragma once
 
@@ -272,7 +272,7 @@ const propertiesCpp = ejs.compile(`<%
   const layoutProperties = locals.layoutProperties;
   const paintProperties = locals.paintProperties;
 -%>
-// This file is generated. Do not edit.
+// This file is generated. Edit scripts/generate-style-code.js, then run \`make style-code\`.
 
 #include <mbgl/layer/<%- type %>_layer_properties.hpp>
 

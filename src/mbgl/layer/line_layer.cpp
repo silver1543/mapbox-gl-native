@@ -1,4 +1,4 @@
-// This file is generated. Do not edit.
+// This file is generated. Edit scripts/generate-style-code.js, then run `make style-code`.
 
 #include <mbgl/layer/line_layer.hpp>
 #include <mbgl/layer/line_layer_impl.hpp>
