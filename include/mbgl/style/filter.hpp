@@ -7,6 +7,7 @@
 #include <vector>
 
 namespace mbgl {
+namespace style {
 
 typedef variant<
     class NullFilter,
@@ -88,4 +89,5 @@ public:
     std::vector<Filter> filters;
 };
 
+} // namespace style
 } // namespace mbgl

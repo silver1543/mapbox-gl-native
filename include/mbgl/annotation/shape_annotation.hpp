@@ -2,9 +2,9 @@
 #define MBGL_ANNOTATION_SHAPE_ANNOTATION
 
 #include <mbgl/annotation/annotation.hpp>
-#include <mbgl/style/types.hpp>
 
 #include <mbgl/util/geo.hpp>
+#include <mbgl/util/color.hpp>
 #include <mbgl/util/variant.hpp>
 
 namespace mbgl {

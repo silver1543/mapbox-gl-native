@@ -34,7 +34,7 @@ public:
     ~FillBucket() override;
 
     void upload(gl::GLObjectStore&) override;
-    void render(Painter&, const Layer&, const TileID&, const mat4&) override;
+    void render(Painter&, const style::Layer&, const TileID&, const mat4&) override;
     bool hasData() const override;
     bool needsClipping() const override;
 

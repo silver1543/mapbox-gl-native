@@ -1,11 +1,11 @@
 #include <mbgl/text/collision_tile.hpp>
 #include <mbgl/tile/tile_worker.hpp>
 #include <mbgl/tile/geometry_tile.hpp>
-#include <mbgl/style/style_bucket_parameters.hpp>
-#include <mbgl/layer/background_layer.hpp>
-#include <mbgl/layer/custom_layer.hpp>
-#include <mbgl/layer/symbol_layer.hpp>
-#include <mbgl/layer/symbol_layer_impl.hpp>
+#include <mbgl/style/bucket_parameters.hpp>
+#include <mbgl/style/layers/background_layer.hpp>
+#include <mbgl/style/layers/custom_layer.hpp>
+#include <mbgl/style/layers/symbol_layer.hpp>
+#include <mbgl/style/layers/symbol_layer_impl.hpp>
 #include <mbgl/sprite/sprite_atlas.hpp>
 #include <mbgl/geometry/glyph_atlas.hpp>
 #include <mbgl/renderer/symbol_bucket.hpp>
@@ -14,7 +14,9 @@
 #include <mbgl/util/exception.hpp>
 #include <utility>
 
-using namespace mbgl;
+namespace mbgl {
+
+using namespace mbgl::style;
 
 TileWorker::TileWorker(TileID id_,
                        std::string sourceID_,
@@ -154,7 +156,7 @@ void TileWorker::parseLayer(const Layer* layer) {
         return;
     }
 
-    StyleBucketParameters parameters(id,
+    BucketParameters parameters(id,
                                      *geometryLayer,
                                      state,
                                      reinterpret_cast<uintptr_t>(this),
@@ -183,4 +185,6 @@ void TileWorker::insertBucket(const std::string& name, std::unique_ptr<Bucket> b
     if (bucket->hasData()) {
         result.buckets.emplace(name, std::move(bucket));
     }
+}
+
 }

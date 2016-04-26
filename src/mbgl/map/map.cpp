@@ -7,9 +7,10 @@
 #include <mbgl/annotation/shape_annotation.hpp>
 #include <mbgl/annotation/annotation_manager.hpp>
 #include <mbgl/style/style.hpp>
-#include <mbgl/style/property_transition.hpp>
-#include <mbgl/style/style_update_parameters.hpp>
-#include <mbgl/layer/custom_layer.hpp>
+#include <mbgl/style/layer.hpp>
+#include <mbgl/style/observer.hpp>
+#include <mbgl/style/transition_options.hpp>
+#include <mbgl/style/update_parameters.hpp>
 #include <mbgl/renderer/painter.hpp>
 #include <mbgl/storage/file_source.hpp>
 #include <mbgl/storage/resource.hpp>
@@ -25,13 +26,15 @@
 
 namespace mbgl {
 
+using namespace style;
+
 enum class RenderState {
     never,
     partial,
     fully
 };
 
-class Map::Impl : public Style::Observer {
+class Map::Impl : public style::Observer {
 public:
     Impl(View&, FileSource&, MapMode, GLContextMode, ConstrainMode);
 
@@ -214,17 +217,17 @@ void Map::Impl::update() {
         style->recalculate(transform.getZoom(), timePoint, mode);
     }
 
-    StyleUpdateParameters parameters(pixelRatio,
-                                     debugOptions,
-                                     timePoint,
-                                     transform.getState(),
-                                     style->workers,
-                                     fileSource,
-                                     *texturePool,
-                                     style->shouldReparsePartialTiles,
-                                     mode,
-                                     *annotationManager,
-                                     *style);
+    style::UpdateParameters parameters(pixelRatio,
+                                       debugOptions,
+                                       timePoint,
+                                       transform.getState(),
+                                       style->workers,
+                                       fileSource,
+                                       *texturePool,
+                                       style->shouldReparsePartialTiles,
+                                       mode,
+                                       *annotationManager,
+                                       *style);
 
     style->update(parameters);
 
@@ -796,19 +799,19 @@ bool Map::isFullyLoaded() const {
     return impl->style->isLoaded();
 }
 
-void Map::addClass(const std::string& className, const PropertyTransition& properties) {
+void Map::addClass(const std::string& className, const TransitionOptions& properties) {
     if (impl->style->addClass(className, properties)) {
         update(Update::Classes);
     }
 }
 
-void Map::removeClass(const std::string& className, const PropertyTransition& properties) {
+void Map::removeClass(const std::string& className, const TransitionOptions& properties) {
     if (impl->style->removeClass(className, properties)) {
         update(Update::Classes);
     }
 }
 
-void Map::setClasses(const std::vector<std::string>& classNames, const PropertyTransition& properties) {
+void Map::setClasses(const std::vector<std::string>& classNames, const TransitionOptions& properties) {
     impl->style->setClasses(classNames, properties);
     update(Update::Classes);
 }

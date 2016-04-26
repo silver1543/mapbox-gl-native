@@ -1,6 +1,6 @@
 #include <mbgl/renderer/fill_bucket.hpp>
 #include <mbgl/geometry/fill_buffer.hpp>
-#include <mbgl/layer/fill_layer.hpp>
+#include <mbgl/style/layers/fill_layer.hpp>
 #include <mbgl/geometry/elements_buffer.hpp>
 #include <mbgl/renderer/painter.hpp>
 #include <mbgl/shader/plain_shader.hpp>
@@ -12,9 +12,11 @@
 
 #include <cassert>
 
+namespace mbgl {
+
 struct geometry_too_long_exception : std::exception {};
 
-using namespace mbgl;
+using namespace style;
 
 void *FillBucket::alloc(void *, unsigned int size) {
     return ::malloc(size);
@@ -257,4 +259,6 @@ void FillBucket::drawVertices(OutlinePatternShader& shader, gl::GLObjectStore& g
         vertex_index += group->vertex_length * vertexBuffer.itemSize;
         elements_index += group->elements_length * lineElementsBuffer.itemSize;
     }
+}
+
 }

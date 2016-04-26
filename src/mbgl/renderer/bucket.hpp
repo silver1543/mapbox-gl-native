@@ -14,12 +14,15 @@
 namespace mbgl {
 
 class Painter;
-class Layer;
 class TileID;
 class CollisionTile;
 
 namespace gl {
 class GLObjectStore;
+}
+
+namespace style {
+class Layer;
 }
 
 class Bucket : private util::noncopyable {
@@ -32,7 +35,7 @@ public:
 
     // Every time this bucket is getting rendered, this function is called. This happens either
     // once or twice (for Opaque and Transparent render passes).
-    virtual void render(Painter&, const Layer&, const TileID&, const mat4&) = 0;
+    virtual void render(Painter&, const style::Layer&, const TileID&, const mat4&) = 0;
 
     virtual ~Bucket() = default;
 

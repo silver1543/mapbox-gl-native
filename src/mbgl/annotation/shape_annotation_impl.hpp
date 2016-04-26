@@ -13,8 +13,11 @@
 
 namespace mbgl {
 
-class Style;
 class AnnotationTile;
+
+namespace style {
+class Style;
+}
 
 class ShapeAnnotationImpl {
 public:
@@ -22,7 +25,7 @@ public:
 
     ShapeAnnotationImpl(const AnnotationID, const ShapeAnnotation&, const uint8_t maxZoom);
 
-    void updateStyle(Style&);
+    void updateStyle(style::Style&);
     void updateTile(const TileID&, AnnotationTile&);
 
     const AnnotationID id;

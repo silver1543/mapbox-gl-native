@@ -6,6 +6,7 @@
 #include <type_traits>
 
 namespace mbgl {
+namespace style {
 
 class FilterEvaluator {
 public:
@@ -150,4 +151,5 @@ private:
     const GeometryTileFeature& feature;
 };
 
+} // namespace mbgl
 } // namespace mbgl

@@ -7,11 +7,12 @@
 #include <mbgl/util/math.hpp>
 #include <mbgl/util/string.hpp>
 #include <mbgl/style/style.hpp>
-#include <mbgl/layer/line_layer.hpp>
-#include <mbgl/layer/fill_layer.hpp>
+#include <mbgl/style/layers/line_layer.hpp>
+#include <mbgl/style/layers/fill_layer.hpp>
 
 namespace mbgl {
 
+using namespace style;
 namespace geojsonvt = mapbox::geojsonvt;
 
 ShapeAnnotationImpl::ShapeAnnotationImpl(const AnnotationID id_,

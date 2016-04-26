@@ -5,6 +5,7 @@
 #include <mbgl/util/io.hpp>
 
 using namespace mbgl;
+using namespace mbgl::style;
 
 TEST(Style, UnusedSource) {
     util::RunLoop loop;

@@ -1,19 +1,20 @@
-#ifndef MBGL_STYLE_STYLE
-#define MBGL_STYLE_STYLE
+#pragma once
 
-#include <mbgl/style/zoom_history.hpp>
-#include <mbgl/style/property_transition.hpp>
+#include <mbgl/style/observer.hpp>
+#include <mbgl/style/transition_options.hpp>
 
-#include <mbgl/source/source.hpp>
+#include <mbgl/style/source.hpp>
 #include <mbgl/text/glyph_store.hpp>
 #include <mbgl/sprite/sprite_store.hpp>
 #include <mbgl/map/mode.hpp>
+#include <mbgl/map/zoom_history.hpp>
 
 #include <mbgl/util/noncopyable.hpp>
 #include <mbgl/util/chrono.hpp>
 #include <mbgl/util/worker.hpp>
 #include <mbgl/util/optional.hpp>
 #include <mbgl/util/feature.hpp>
+#include <mbgl/util/color.hpp>
 
 #include <cstdint>
 #include <string>
@@ -23,18 +24,18 @@ namespace mbgl {
 
 class FileSource;
 class GlyphAtlas;
-class GlyphStore;
-class SpriteStore;
 class SpriteAtlas;
 class LineAtlas;
-class Layer;
 class Tile;
 class Bucket;
-class StyleUpdateParameters;
 class TileCoordinate;
 
+namespace style {
+class Layer;
+}
+
 struct RenderItem {
-    inline RenderItem(const Layer& layer_,
+    inline RenderItem(const style::Layer& layer_,
                       const Tile* tile_ = nullptr,
                       Bucket* bucket_ = nullptr)
         : tile(tile_), bucket(bucket_), layer(layer_) {
@@ -42,14 +43,18 @@ struct RenderItem {
 
     const Tile* const tile;
     Bucket* const bucket;
-    const Layer& layer;
+    const style::Layer& layer;
 };
 
 struct RenderData {
     Color backgroundColor = {{ 0, 0, 0, 0 }};
-    std::set<Source*> sources;
+    std::set<style::Source*> sources;
     std::vector<RenderItem> order;
 };
+
+namespace style {
+
+class UpdateParameters;
 
 class Style : public GlyphStore::Observer,
               public SpriteStore::Observer,
@@ -59,29 +64,15 @@ public:
     Style(FileSource&, float pixelRatio);
     ~Style();
 
-    class Observer : public GlyphStore::Observer,
-                     public SpriteStore::Observer,
-                     public Source::Observer {
-    public:
-        /**
-         * In addition to the individual glyph, sprite, and source events, the
-         * following "rollup" events are provided for convenience. They are
-         * strictly additive; e.g. when a source is loaded, both `onSourceLoaded`
-         * and `onResourceLoaded` will be called.
-         */
-         virtual void onResourceLoaded() {};
-         virtual void onResourceError(std::exception_ptr) {};
-    };
-
     void setJSON(const std::string& data, const std::string& base);
 
-    void setObserver(Observer*);
+    void setObserver(style::Observer*);
 
     bool isLoaded() const;
 
     // Fetch the tiles needed by the current viewport and emit a signal when
     // a tile is ready so observers can render the tile.
-    void update(const StyleUpdateParameters&);
+    void update(const UpdateParameters&);
 
     void cascade(const TimePoint&, MapMode);
     void recalculate(float z, const TimePoint&, MapMode);
@@ -101,10 +92,10 @@ public:
                   optional<std::string> beforeLayerID = {});
     void removeLayer(const std::string& layerID);
 
-    bool addClass(const std::string&, const PropertyTransition& = {});
-    bool removeClass(const std::string&, const PropertyTransition& = {});
+    bool addClass(const std::string&, const TransitionOptions& = {});
+    bool removeClass(const std::string&, const TransitionOptions& = {});
     bool hasClass(const std::string&) const;
-    void setClasses(const std::vector<std::string>&, const PropertyTransition& = {});
+    void setClasses(const std::vector<std::string>&, const TransitionOptions& = {});
     std::vector<std::string> getClasses() const;
 
     RenderData getRenderData() const;
@@ -133,7 +124,7 @@ private:
     std::vector<std::unique_ptr<Source>> sources;
     std::vector<std::unique_ptr<Layer>> layers;
     std::vector<std::string> classes;
-    optional<PropertyTransition> transitionProperties;
+    optional<TransitionOptions> transitionProperties;
 
     std::vector<std::unique_ptr<Layer>>::const_iterator findLayer(const std::string& layerID) const;
 
@@ -152,8 +143,8 @@ private:
     void onTileError(Source&, const TileID&, std::exception_ptr) override;
     void onPlacementRedone() override;
 
-    Observer nullObserver;
-    Observer* observer = &nullObserver;
+    style::Observer nullObserver;
+    style::Observer* observer = &nullObserver;
 
     std::exception_ptr lastError;
 
@@ -166,6 +157,5 @@ public:
     Worker workers;
 };
 
+} // namespace style
 } // namespace mbgl
-
-#endif

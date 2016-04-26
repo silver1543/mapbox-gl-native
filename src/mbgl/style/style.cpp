@@ -1,22 +1,22 @@
 #include <mbgl/style/style.hpp>
-#include <mbgl/source/source.hpp>
+#include <mbgl/style/source.hpp>
 #include <mbgl/tile/tile.hpp>
 #include <mbgl/map/transform_state.hpp>
-#include <mbgl/layer/symbol_layer.hpp>
-#include <mbgl/layer/symbol_layer_impl.hpp>
-#include <mbgl/layer/custom_layer.hpp>
-#include <mbgl/layer/custom_layer_impl.hpp>
-#include <mbgl/layer/background_layer.hpp>
-#include <mbgl/layer/background_layer_impl.hpp>
+#include <mbgl/style/layers/symbol_layer.hpp>
+#include <mbgl/style/layers/symbol_layer_impl.hpp>
+#include <mbgl/style/layers/custom_layer.hpp>
+#include <mbgl/style/layers/custom_layer_impl.hpp>
+#include <mbgl/style/layers/background_layer.hpp>
+#include <mbgl/style/layers/background_layer_impl.hpp>
 #include <mbgl/sprite/sprite_store.hpp>
 #include <mbgl/sprite/sprite_atlas.hpp>
-#include <mbgl/layer/layer_impl.hpp>
-#include <mbgl/style/style_parser.hpp>
-#include <mbgl/style/property_transition.hpp>
+#include <mbgl/style/layer_impl.hpp>
+#include <mbgl/style/parser.hpp>
+#include <mbgl/style/transition_options.hpp>
 #include <mbgl/style/class_dictionary.hpp>
-#include <mbgl/style/style_update_parameters.hpp>
-#include <mbgl/style/style_cascade_parameters.hpp>
-#include <mbgl/style/style_calculation_parameters.hpp>
+#include <mbgl/style/update_parameters.hpp>
+#include <mbgl/style/cascade_parameters.hpp>
+#include <mbgl/style/calculation_parameters.hpp>
 #include <mbgl/geometry/glyph_atlas.hpp>
 #include <mbgl/geometry/line_atlas.hpp>
 #include <mbgl/util/constants.hpp>
@@ -28,8 +28,9 @@
 #include <algorithm>
 
 namespace mbgl {
+namespace style {
 
-bool Style::addClass(const std::string& className, const PropertyTransition& properties) {
+bool Style::addClass(const std::string& className, const TransitionOptions& properties) {
     if (std::find(classes.begin(), classes.end(), className) != classes.end()) return false;
     classes.push_back(className);
     transitionProperties = properties;
@@ -40,7 +41,7 @@ bool Style::hasClass(const std::string& className) const {
     return std::find(classes.begin(), classes.end(), className) != classes.end();
 }
 
-bool Style::removeClass(const std::string& className, const PropertyTransition& properties) {
+bool Style::removeClass(const std::string& className, const TransitionOptions& properties) {
     const auto it = std::find(classes.begin(), classes.end(), className);
     if (it != classes.end()) {
         classes.erase(it);
@@ -50,7 +51,7 @@ bool Style::removeClass(const std::string& className, const PropertyTransition& 
     return false;
 }
 
-void Style::setClasses(const std::vector<std::string>& classNames, const PropertyTransition& properties) {
+void Style::setClasses(const std::vector<std::string>& classNames, const TransitionOptions& properties) {
     classes = classNames;
     transitionProperties = properties;
 }
@@ -76,7 +77,7 @@ void Style::setJSON(const std::string& json, const std::string&) {
     layers.clear();
     classes.clear();
 
-    StyleParser parser;
+    Parser parser;
     parser.parse(json);
 
     for (auto& source : parser.sources) {
@@ -148,7 +149,7 @@ void Style::removeLayer(const std::string& id) {
     layers.erase(it);
 }
 
-void Style::update(const StyleUpdateParameters& parameters) {
+void Style::update(const UpdateParameters& parameters) {
     bool allTilesUpdated = true;
 
     for (const auto& source : sources) {
@@ -167,7 +168,7 @@ void Style::update(const StyleUpdateParameters& parameters) {
 void Style::cascade(const TimePoint& timePoint, MapMode mode) {
     // When in continuous mode, we can either have user- or style-defined
     // transitions. Still mode is always immediate.
-    static const PropertyTransition immediateTransition;
+    static const TransitionOptions immediateTransition;
 
     std::vector<ClassID> classIDs;
     for (const auto& className : classes) {
@@ -176,7 +177,7 @@ void Style::cascade(const TimePoint& timePoint, MapMode mode) {
     classIDs.push_back(ClassID::Default);
     classIDs.push_back(ClassID::Fallback);
 
-    const StyleCascadeParameters parameters {
+    const CascadeParameters parameters {
         classIDs,
         mode == MapMode::Continuous ? timePoint : Clock::time_point::max(),
         mode == MapMode::Continuous ? transitionProperties.value_or(immediateTransition) : immediateTransition
@@ -196,7 +197,7 @@ void Style::recalculate(float z, const TimePoint& timePoint, MapMode mode) {
 
     zoomHistory.update(z, timePoint);
 
-    const StyleCalculationParameters parameters {
+    const CalculationParameters parameters {
         z,
         mode == MapMode::Continuous ? timePoint : Clock::time_point::max(),
         zoomHistory,
@@ -367,7 +368,7 @@ void Style::onLowMemory() {
     }
 }
 
-void Style::setObserver(Observer* observer_) {
+void Style::setObserver(style::Observer* observer_) {
     observer = observer_;
 }
 
@@ -440,4 +441,5 @@ void Style::dumpDebugLogs() const {
     spriteStore->dumpDebugLogs();
 }
 
+} // namespace style
 } // namespace mbgl

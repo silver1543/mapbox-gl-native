@@ -7,13 +7,12 @@
 #include <mbgl/geometry/elements_buffer.hpp>
 #include <mbgl/geometry/line_buffer.hpp>
 #include <mbgl/util/vec.hpp>
-#include <mbgl/layer/line_layer_impl.hpp>
+#include <mbgl/style/layers/line_layer_properties.hpp>
 
 #include <vector>
 
 namespace mbgl {
 
-class Style;
 class LineVertexBuffer;
 class TriangleElementsBuffer;
 class LineShader;
@@ -28,7 +27,7 @@ public:
     ~LineBucket() override;
 
     void upload(gl::GLObjectStore&) override;
-    void render(Painter&, const Layer&, const TileID&, const mat4&) override;
+    void render(Painter&, const style::Layer&, const TileID&, const mat4&) override;
     bool hasData() const override;
     bool needsClipping() const override;
 
@@ -52,7 +51,7 @@ private:
             std::vector<TriangleElement>& triangleStore);
 
 public:
-    LineLayoutProperties layout;
+    style::LineLayoutProperties layout;
 
 private:
     LineVertexBuffer vertexBuffer;

@@ -16,8 +16,8 @@
 #include <mbgl/platform/darwin/reachability.h>
 #include <mbgl/storage/default_file_source.hpp>
 #include <mbgl/storage/network_status.hpp>
-#include <mbgl/style/property_transition.hpp>
-#include <mbgl/layer/custom_layer.hpp>
+#include <mbgl/style/transition_options.hpp>
+#include <mbgl/style/layers/custom_layer.hpp>
 #include <mbgl/util/geo.hpp>
 #include <mbgl/util/math.hpp>
 #include <mbgl/util/constants.hpp>
@@ -2656,7 +2656,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         newAppliedClasses.insert(newAppliedClasses.end(), [appliedClass UTF8String]);
     }
 
-    mbgl::PropertyTransition transition { { MGLDurationInSeconds(transitionDuration) } };
+    mbgl::style::TransitionOptions transition { { MGLDurationInSeconds(transitionDuration) } };
     _mbglMap->setClasses(newAppliedClasses, transition);
 }
 
@@ -4691,7 +4691,7 @@ void MGLPrepareCustomStyleLayer(void *context)
     }
 }
 
-void MGLDrawCustomStyleLayer(void *context, const mbgl::CustomLayerRenderParameters &params)
+void MGLDrawCustomStyleLayer(void *context, const mbgl::style::CustomLayerRenderParameters &params)
 {
     CGSize size = CGSizeMake(params.width, params.height);
     CLLocationCoordinate2D centerCoordinate = CLLocationCoordinate2DMake(params.latitude, params.longitude);
@@ -4723,8 +4723,8 @@ void MGLFinishCustomStyleLayer(void *context)
 {
     NSAssert(identifier, @"Style layer needs an identifier");
     MGLCustomStyleLayerHandlers *context = new MGLCustomStyleLayerHandlers(preparation, drawing, completion);
-    _mbglMap->addLayer(std::make_unique<mbgl::CustomLayer>(identifier.UTF8String, MGLPrepareCustomStyleLayer,
-                                                           MGLDrawCustomStyleLayer, MGLFinishCustomStyleLayer, context),
+    _mbglMap->addLayer(std::make_unique<mbgl::style::CustomLayer>(identifier.UTF8String, MGLPrepareCustomStyleLayer,
+                                                                  MGLDrawCustomStyleLayer, MGLFinishCustomStyleLayer, context),
                        otherIdentifier ? mbgl::optional<std::string>(otherIdentifier.UTF8String) : mbgl::optional<std::string>());
 }
 

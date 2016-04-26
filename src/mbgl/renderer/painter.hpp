@@ -11,7 +11,6 @@
 
 #include <mbgl/gl/gl_config.hpp>
 
-#include <mbgl/style/types.hpp>
 #include <mbgl/style/style.hpp>
 
 #include <mbgl/gl/gl.hpp>
@@ -27,27 +26,19 @@
 
 namespace mbgl {
 
-class Style;
 class Tile;
 class SpriteAtlas;
 class GlyphAtlas;
 class LineAtlas;
-class Source;
 struct FrameData;
 class TileData;
 
 class DebugBucket;
 class FillBucket;
-class FillLayer;
 class LineBucket;
-class LineLayer;
 class CircleBucket;
-class CircleLayer;
 class SymbolBucket;
-class SymbolLayer;
 class RasterBucket;
-class RasterLayer;
-class BackgroundLayer;
 
 class SDFShader;
 class PlainShader;
@@ -72,6 +63,17 @@ namespace util {
 class GLObjectStore;
 }
 
+namespace style {
+class Style;
+class Source;
+class FillLayer;
+class LineLayer;
+class CircleLayer;
+class SymbolLayer;
+class RasterLayer;
+class BackgroundLayer;
+}
+
 struct FrameData {
     std::array<uint16_t, 2> framebufferSize;
     TimePoint timePoint;
@@ -86,8 +88,8 @@ public:
     Painter(const TransformState&, gl::GLObjectStore&);
     ~Painter();
 
-    void render(const Style& style,
-                const FrameData& frame,
+    void render(const style::Style&,
+                const FrameData&,
                 SpriteAtlas& annotationSpriteAtlas);
 
     // Renders debug information for a tile.
@@ -97,12 +99,12 @@ public:
     void renderDebugFrame(const mat4 &matrix);
 
     void renderDebugText(TileData&, const mat4&);
-    void renderFill(FillBucket&, const FillLayer&, const TileID&, const mat4&);
-    void renderLine(LineBucket&, const LineLayer&, const TileID&, const mat4&);
-    void renderCircle(CircleBucket&, const CircleLayer&, const TileID&, const mat4&);
-    void renderSymbol(SymbolBucket&, const SymbolLayer&, const TileID&, const mat4&);
-    void renderRaster(RasterBucket&, const RasterLayer&, const TileID&, const mat4&);
-    void renderBackground(const BackgroundLayer&);
+    void renderFill(FillBucket&, const style::FillLayer&, const TileID&, const mat4&);
+    void renderLine(LineBucket&, const style::LineLayer&, const TileID&, const mat4&);
+    void renderCircle(CircleBucket&, const style::CircleLayer&, const TileID&, const mat4&);
+    void renderSymbol(SymbolBucket&, const style::SymbolLayer&, const TileID&, const mat4&);
+    void renderRaster(RasterBucket&, const style::RasterLayer&, const TileID&, const mat4&);
+    void renderBackground(const style::BackgroundLayer&);
 
     float saturationFactor(float saturation);
     float contrastFactor(float contrast);
@@ -113,9 +115,9 @@ public:
     bool needsAnimation() const;
 
 private:
-    mat4 translatedMatrix(const mat4& matrix, const std::array<float, 2> &translation, const TileID &id, TranslateAnchorType anchor);
+    mat4 translatedMatrix(const mat4& matrix, const std::array<float, 2> &translation, const TileID &id, style::TranslateAnchorType anchor);
 
-    std::vector<RenderItem> determineRenderOrder(const Style& style);
+    std::vector<RenderItem> determineRenderOrder(const style::Style&);
 
     template <class Iterator>
     void renderPass(RenderPass,
@@ -133,7 +135,7 @@ private:
                    void (SymbolBucket::*drawSDF)(SDFShader&, gl::GLObjectStore&),
 
                    // Layout
-                   RotationAlignmentType rotationAlignment,
+                   style::RotationAlignmentType rotationAlignment,
                    float layoutSize,
 
                    // Paint
@@ -143,7 +145,7 @@ private:
                    float haloWidth,
                    float haloBlur,
                    std::array<float, 2> translate,
-                   TranslateAnchorType translateAnchor,
+                   style::TranslateAnchorType translateAnchor,
                    float paintSize);
 
     void setDepthSublayer(int n);

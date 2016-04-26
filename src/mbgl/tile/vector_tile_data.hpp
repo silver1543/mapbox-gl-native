@@ -12,23 +12,26 @@
 
 namespace mbgl {
 
-class Style;
 class AsyncRequest;
 class GeometryTileMonitor;
 class FeatureIndex;
+
+namespace style {
+class Style;
+}
 
 class VectorTileData : public TileData {
 public:
     VectorTileData(const TileID&,
                    std::unique_ptr<GeometryTileMonitor> monitor,
                    std::string sourceID,
-                   Style&,
+                   style::Style&,
                    const MapMode,
                    const std::function<void(std::exception_ptr)>& callback);
 
     ~VectorTileData();
 
-    Bucket* getBucket(const Layer&) override;
+    Bucket* getBucket(const style::Layer&) override;
 
     bool parsePending(std::function<void(std::exception_ptr)> callback) override;
 
@@ -48,7 +51,7 @@ public:
     void cancel() override;
 
 private:
-    Style& style;
+    style::Style& style;
     Worker& worker;
     TileWorker tileWorker;
 

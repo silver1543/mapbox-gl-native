@@ -1,5 +1,4 @@
-#ifndef MBGL_LAYOUT_PROPERTY
-#define MBGL_LAYOUT_PROPERTY
+#pragma once
 
 #include <mbgl/style/property_value.hpp>
 #include <mbgl/style/property_parsing.hpp>
@@ -9,6 +8,7 @@
 #include <utility>
 
 namespace mbgl {
+namespace style {
 
 template <typename T>
 class LayoutProperty {
@@ -31,7 +31,7 @@ public:
         }
     }
 
-    void calculate(const StyleCalculationParameters& parameters) {
+    void calculate(const CalculationParameters& parameters) {
         if (currentValue) {
             PropertyEvaluator<T> evaluator(parameters, defaultValue);
             value = PropertyValue<T>::visit(currentValue, evaluator);
@@ -47,6 +47,5 @@ private:
     PropertyValue<T> currentValue;
 };
 
+} // namespace style
 } // namespace mbgl
-
-#endif
