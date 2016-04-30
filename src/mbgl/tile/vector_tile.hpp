@@ -20,13 +20,13 @@ public:
     FeatureType getType() const override { return type; }
     optional<Value> getValue(const std::string&) const override;
     std::unordered_map<std::string,Value> getProperties() const override;
-    uint64_t getID() const override;
+    optional<uint64_t> getID() const override;
     GeometryCollection getGeometries() const override;
     uint32_t getExtent() const override;
 
 private:
     const VectorTileLayer& layer;
-    uint64_t id = 0;
+    optional<uint64_t> id;
     FeatureType type = FeatureType::Unknown;
     pbf tags_pbf;
     pbf geometry_pbf;

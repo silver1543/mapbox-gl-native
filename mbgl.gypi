@@ -173,6 +173,7 @@
         'cflags_cc': [
           '<@(opengl_cflags)',
           '<@(boost_cflags)',
+          '<@(geometry_cflags)',
           '<@(geojsonvt_cflags)',
           '<@(rapidjson_cflags)',
           '<@(variant_cflags)',
@@ -287,10 +288,12 @@
       'direct_dependent_settings': {
         'cflags_cc': [
           '<@(variant_cflags)',
+          '<@(geometry_cflags)',
         ],
         'xcode_settings': {
           'OTHER_CPLUSPLUSFLAGS': [
             '<@(variant_cflags)',
+            '<@(geometry_cflags)',
           ],
         },
       },

@@ -1592,6 +1592,7 @@
 					"$(zlib_cflags)",
 					"$(rapidjson_cflags)",
 					"$(variant_cflags)",
+					"$(geometry_cflags)",
 				);
 				OTHER_LDFLAGS = (
 					"$(sqlite_ldflags)",
@@ -1632,6 +1633,7 @@
 					"$(zlib_cflags)",
 					"$(rapidjson_cflags)",
 					"$(variant_cflags)",
+					"$(geometry_cflags)",
 				);
 				OTHER_LDFLAGS = (
 					"$(sqlite_ldflags)",
@@ -1685,6 +1687,7 @@
 					"$(zlib_cflags)",
 					"$(rapidjson_cflags)",
 					"$(variant_cflags)",
+					"$(geometry_cflags)",
 				);
 				OTHER_LDFLAGS = (
 					"-ObjC",
@@ -1715,6 +1718,7 @@
 					"$(zlib_cflags)",
 					"$(rapidjson_cflags)",
 					"$(variant_cflags)",
+					"$(geometry_cflags)",
 				);
 				OTHER_LDFLAGS = (
 					"-ObjC",
