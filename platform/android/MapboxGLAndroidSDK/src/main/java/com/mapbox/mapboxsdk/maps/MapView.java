@@ -454,9 +454,30 @@ public class MapView extends FrameLayout {
 
                     LongSparseArray<View> markerViews = mMapboxMap.getMarkerViews();
                     Log.v(MapboxConstants.TAG, "Region is changing ane we are seeing: " + ids.length + " point annotations  " + change);
-//                    for (long id : ids) {
-//                        Log.v(MapboxConstants.TAG, "Marker: "+id);
-//                    }
+
+                    MapboxMap.MarkerViewAdapter adapter = mMapboxMap.getMarkerViewAdapter();
+
+                    boolean found;
+                    long key;
+
+                    for (long id : ids) {
+                        found = false;
+                        for (int i = 0; i < markerViews.size(); i++) {
+                            key = markerViews.keyAt(i);
+
+                            if (id == key) {
+                                found = true;
+                            }
+                        }
+
+                        if (!found) {
+                            Log.v(MapboxConstants.TAG,"Adding "+id);
+                            mMapboxMap.addMarkerView(id, adapter.getView((Marker) mMapboxMap.getAnnotation(id), null, MapView.this));
+                        }else{
+                            Log.v(MapboxConstants.TAG,"Already added "+id);
+                        }
+
+                    }
                 }
             }
         });
@@ -1296,6 +1317,7 @@ public class MapView extends FrameLayout {
     private class SurfaceTextureListener implements TextureView.SurfaceTextureListener {
 
         private Surface mSurface;
+        private View mViewHolder;
 
         private static final int VIEW_MARKERS_POOL_SIZE = 20;
 
@@ -1347,16 +1369,14 @@ public class MapView extends FrameLayout {
             mMyLocationView.update();
 
             LongSparseArray<View> viewMarkers = mMapboxMap.getMarkerViews();
+            for (int i = 0; i < viewMarkers.size(); i++) {
+                mViewHolder = viewMarkers.valueAt(i);
+                Marker marker = (Marker) mMapboxMap.getAnnotation(viewMarkers.keyAt(i));
+                PointF point = mMapboxMap.getProjection().toScreenLocation(marker.getPosition());
+                mViewHolder.setX(point.x - (mViewHolder.getMeasuredWidth() / 2));
+                mViewHolder.setY(point.y - (mViewHolder.getMeasuredHeight() / 2));
+            }
 
-//            View view;
-//
-//            for (Map.Entry<Marker, View> entry : viewMarkerMap.entrySet()){
-//                PointF point = mMapboxMap.getProjection().toScreenLocation(entry.getKey().getPosition());
-//                view = entry.getValue();
-//                setX(point.x - (view.getMeasuredWidth()/2));
-//                setY(point.y - (view.getMeasuredHeight()/2));
-//            }
-//
             for (InfoWindow infoWindow : mMapboxMap.getInfoWindows()) {
                 infoWindow.update();
             }
