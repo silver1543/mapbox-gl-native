@@ -6,7 +6,6 @@
       'type': 'executable',
 
       'dependencies': [
-        'core',
         'platform-lib',
         'copy_certificate_bundle',
       ],
@@ -22,6 +21,8 @@
 
       'cflags_cc': [
         '<@(boost_cflags)',
+        '<@(variant_cflags)',
+        '<@(geometry_cflags)',
       ],
 
       'link_settings': {
@@ -33,6 +34,8 @@
       'xcode_settings': {
         'OTHER_CPLUSPLUSFLAGS': [
           '<@(boost_cflags)',
+          '<@(variant_cflags)',
+          '<@(geometry_cflags)',
         ],
       }
     },
