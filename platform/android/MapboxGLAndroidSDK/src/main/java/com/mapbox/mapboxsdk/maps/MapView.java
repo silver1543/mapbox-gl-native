@@ -31,6 +31,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.UiThread;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.util.LongSparseArray;
 import android.support.v4.view.GestureDetectorCompat;
 import android.support.v4.view.ScaleGestureDetectorCompat;
 import android.support.v7.app.AlertDialog;
@@ -94,7 +95,6 @@ import java.util.Collections;
 import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -452,36 +452,7 @@ public class MapView extends FrameLayout {
                     LatLngBounds bounds = mMapboxMap.getProjection().getVisibleRegion().latLngBounds;
                     long[] ids = mNativeMapView.getAnnotationsInBounds(bounds);
 
-                    Map<Marker, View> markerViews = mMapboxMap.getMarkerViews();
-
-                    Iterator<Object> it = map.keySet().iterator();
-
-                    while (it.hasNext()) {
-                        it.next();
-                        if (something)
-                            it.remove();
-                    }
-
-                    for (long id : ids) {
-                        boolean found = false;
-                        for (View view : markerViews) {
-                            if (view.getMarker().getId() == id) {
-                                found = true;
-                            }
-                        }
-                        if (!found) {
-                            MapboxMap.MarkerViewAdapter adapter = mMapboxMap.getMarkerViewAdapter();
-                            Marker marker = (Marker) mMapboxMap.getAnnotation(id);
-                            if (adapter != null) {
-                                View view = adapter.getView(marker, marker.getMarkerView(), MapView.this);
-                                if (view != null) {
-                                    markerViews.add(view);
-                                }
-                            }
-                        }
-                    }
-
-
+                    LongSparseArray<View> markerViews = mMapboxMap.getMarkerViews();
                     Log.v(MapboxConstants.TAG, "Region is changing ane we are seeing: " + ids.length + " point annotations  " + change);
 //                    for (long id : ids) {
 //                        Log.v(MapboxConstants.TAG, "Marker: "+id);
@@ -1375,17 +1346,17 @@ public class MapView extends FrameLayout {
             mCompassView.update(getDirection());
             mMyLocationView.update();
 
-            Map<Marker, View> viewMarkerMap = mMapboxMap.getMarkerViews();
+            LongSparseArray<View> viewMarkers = mMapboxMap.getMarkerViews();
 
-            View view;
-
-            for (Map.Entry<Marker, View> entry : viewMarkerMap.entrySet()) {
-                PointF point = mMapboxMap.getProjection().toScreenLocation(entry.getKey().getPosition());
-                view = entry.getValue();
-                setX(point.x - (view.getMeasuredWidth() / 2));
-                setY(point.y - (view.getMeasuredHeight() / 2));
-            }
-
+//            View view;
+//
+//            for (Map.Entry<Marker, View> entry : viewMarkerMap.entrySet()){
+//                PointF point = mMapboxMap.getProjection().toScreenLocation(entry.getKey().getPosition());
+//                view = entry.getValue();
+//                setX(point.x - (view.getMeasuredWidth()/2));
+//                setY(point.y - (view.getMeasuredHeight()/2));
+//            }
+//
             for (InfoWindow infoWindow : mMapboxMap.getInfoWindows()) {
                 infoWindow.update();
             }
