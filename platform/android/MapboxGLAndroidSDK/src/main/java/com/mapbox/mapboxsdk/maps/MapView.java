@@ -25,6 +25,8 @@ import android.net.NetworkInfo;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.support.annotation.CallSuper;
 import android.support.annotation.FloatRange;
@@ -34,6 +36,7 @@ import android.support.annotation.Nullable;
 import android.support.annotation.UiThread;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.util.LongSparseArray;
+import android.support.v4.util.Pools;
 import android.support.v4.view.GestureDetectorCompat;
 import android.support.v4.view.ScaleGestureDetectorCompat;
 import android.support.v7.app.AlertDialog;
@@ -156,7 +159,7 @@ public class MapView extends FrameLayout {
 
     private List<OnMapReadyCallback> mOnMapReadyCallbackList;
     private long nViewMarkerBoundsUpdateTime;
-    
+
     @UiThread
     public MapView(@NonNull Context context) {
         super(context);
@@ -475,14 +478,15 @@ public class MapView extends FrameLayout {
         }
     }
 
-    private class MarkerInBoundsTask extends AsyncTask<Void, Void, Void>{
+
+    private class MarkerInBoundsTask extends AsyncTask<Void, Void, Void> {
         @Override
         protected Void doInBackground(Void... params) {
             LatLngBounds bounds = mMapboxMap.getProjection().getVisibleRegion().latLngBounds;
             long[] ids = mNativeMapView.getAnnotationsInBounds(bounds);
             LongSparseArray<View> markerViews = mMapboxMap.getMarkerViews();
 
-            MapboxMap.MarkerViewAdapter adapter = mMapboxMap.getMarkerViewAdapter();
+            final MapboxMap.MarkerViewAdapter adapter = mMapboxMap.getMarkerViewAdapter();
 
             boolean found;
             long key;
@@ -499,15 +503,15 @@ public class MapView extends FrameLayout {
                 }
 
                 if (!found) {
-                    Log.v(MapboxConstants.TAG, "Adding " + id);
-//                            if(adapter!=null) {
-//                                mMapboxMap.addMarkerView(id, adapter.getView((Marker) mMapboxMap.getAnnotation(id), null, MapView.this));
-//                            }
-                    markerViews.append(id, null);
+                    if (adapter != null) {
+                        mMapboxMap.addMarkerView(id);
+                    }
                 } else {
                     Log.v(MapboxConstants.TAG, "Already added " + id);
                 }
             }
+
+            markerViews = mMapboxMap.getMarkerViews();
 
             // clean up out of bound markers
             for (int i = 0; i < markerViews.size(); i++) {
@@ -519,8 +523,7 @@ public class MapView extends FrameLayout {
                     }
                 }
                 if (!found) {
-                    Log.v(MapboxConstants.TAG, "Removing " + key);
-                    markerViews.remove(key);
+                    mMapboxMap.removeMarkerView(key);
                 }
             }
 
