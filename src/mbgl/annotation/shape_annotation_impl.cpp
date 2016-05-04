@@ -88,16 +88,15 @@ void ShapeAnnotationImpl::updateTile(const TileID& tileID, AnnotationTile& tile)
         const double tolerance = baseTolerance / (maxAmountOfTiles * GeometryTileFeature::defaultExtent);
 
         geojsonvt::ProjectedRings rings;
-        std::vector<geojsonvt::LonLat> points;
+        mapbox::geometry::linear_ring<double> points;
 
         for (size_t i = 0; i < shape.segments[0].size(); ++i) { // first segment for now (no holes)
             const double constrainedLatitude = util::clamp(shape.segments[0][i].latitude, -util::LATITUDE_MAX, util::LATITUDE_MAX);
-            points.push_back(geojsonvt::LonLat(shape.segments[0][i].longitude, constrainedLatitude));
+            points.emplace_back(shape.segments[0][i].longitude, constrainedLatitude);
         }
 
-        if (type == geojsonvt::ProjectedFeatureType::Polygon &&
-                (points.front().lon != points.back().lon || points.front().lat != points.back().lat)) {
-            points.push_back(geojsonvt::LonLat(points.front().lon, points.front().lat));
+        if (type == geojsonvt::ProjectedFeatureType::Polygon && (points.front() != points.back())) {
+            points.push_back(points.front());
         }
 
         auto ring = geojsonvt::Convert::projectRing(points, tolerance);
