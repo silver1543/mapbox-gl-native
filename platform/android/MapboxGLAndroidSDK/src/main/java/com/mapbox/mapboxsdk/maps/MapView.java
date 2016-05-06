@@ -461,7 +461,7 @@ public class MapView extends FrameLayout {
                     if (mViewMarkersUpdateRunning || currentTime < mViewMarkerBoundsUpdateTime) {
                         return;
                     }
-                    
+
                     mViewMarkerBoundsUpdateTime = currentTime + 300;
                     new MarkerInBoundsTask().execute();
                 }
@@ -1456,6 +1456,10 @@ public class MapView extends FrameLayout {
                     PointF point = mMapboxMap.getProjection().toScreenLocation(marker.getPosition());
                     mViewHolder.setX(point.x - (mViewHolder.getMeasuredWidth() / 2));
                     mViewHolder.setY(point.y - (mViewHolder.getMeasuredHeight() / 2));
+
+                    if (mViewHolder.getVisibility() == View.GONE) {
+                        mViewHolder.setVisibility(View.VISIBLE);
+                    }
                 }
             }
 
