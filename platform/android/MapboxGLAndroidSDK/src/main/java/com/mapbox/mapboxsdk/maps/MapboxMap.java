@@ -639,6 +639,8 @@ public class MapboxMap {
     void setViewMarkersBoundsTaskResult(MapView.MarkerInBoundsTask.Result result) {
         Map<Marker, View> outBoundsMarker = result.getOutBounds();
         View convertView;
+
+        // out of bounds markers
         for (Map.Entry<Marker, View> outBoundsEntry : outBoundsMarker.entrySet()) {
             convertView = outBoundsEntry.getValue();
             if (convertView != null) {
@@ -648,6 +650,7 @@ public class MapboxMap {
             }
         }
 
+        // in bounds markers
         List<Marker> inBoundsMarkers = result.getInBounds();
         for (final Marker marker : inBoundsMarkers) {
             convertView = viewSimplePool.acquire();
@@ -953,11 +956,22 @@ public class MapboxMap {
     @UiThread
     public void removeAnnotation(@NonNull Annotation annotation) {
         if (annotation instanceof Marker) {
-            ((Marker) annotation).hideInfoWindow();
+            Marker marker = (Marker) annotation;
+            marker.hideInfoWindow();
+            removeMarkerView(annotation.getId());
         }
         long id = annotation.getId();
         mMapView.removeAnnotation(id);
         mAnnotations.remove(id);
+    }
+
+    private void removeMarkerView(long id){
+        View viewHolder = mMarkerViews.get(id);
+        if(viewHolder!=null) {
+            viewHolder.setVisibility(View.GONE);
+            viewSimplePool.release(viewHolder);
+        }
+        mMarkerViews.remove(id);
     }
 
     /**
@@ -984,6 +998,7 @@ public class MapboxMap {
             Annotation annotation = annotationList.get(i);
             if (annotation instanceof Marker) {
                 ((Marker) annotation).hideInfoWindow();
+                removeMarkerView(annotation.getId());
             }
             ids[i] = annotationList.get(i).getId();
         }
