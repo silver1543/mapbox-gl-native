@@ -456,14 +456,7 @@ public class MapView extends FrameLayout {
                     }
                 } else if (change == REGION_IS_CHANGING || change == REGION_DID_CHANGE) {
                     if (mMapboxMap.getMarkerViewAdapter() != null) {
-                        long currentTime = SystemClock.elapsedRealtime();
-
-                        if (mViewMarkersUpdateRunning || currentTime < mViewMarkerBoundsUpdateTime) {
-                            return;
-                        }
-
-                        mViewMarkerBoundsUpdateTime = currentTime + 300;
-                        new MarkerInBoundsTask().execute();
+                        invalidateViewMarkers();
                     }
                 }
             }
@@ -478,8 +471,18 @@ public class MapView extends FrameLayout {
         }
     }
 
+    void invalidateViewMarkers(){
+        long currentTime = SystemClock.elapsedRealtime();
 
-    public class MarkerInBoundsTask extends AsyncTask<Void, Void, MarkerInBoundsTask.Result> {
+        if (mViewMarkersUpdateRunning || currentTime < mViewMarkerBoundsUpdateTime) {
+            return;
+        }
+
+        mViewMarkerBoundsUpdateTime = currentTime + 300;
+        new ViewMarkerInBoundsTask().execute();
+    }
+
+    public class ViewMarkerInBoundsTask extends AsyncTask<Void, Void, ViewMarkerInBoundsTask.Result> {
 
         @Override
         protected void onPreExecute() {
