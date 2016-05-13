@@ -4,6 +4,7 @@ import android.content.Context;
 import android.animation.Animator;
 import android.animation.AnimatorInflater;
 import android.animation.AnimatorListenerAdapter;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.location.Location;
 import android.os.SystemClock;
@@ -46,6 +47,7 @@ import com.mapbox.mapboxsdk.layers.CustomLayer;
 import com.mapbox.mapboxsdk.location.LocationListener;
 import com.mapbox.mapboxsdk.maps.widgets.MyLocationViewSettings;
 
+import java.lang.reflect.ParameterizedType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -671,7 +673,7 @@ public class MapboxMap {
             convertView = mViewReusePool.acquire();
             Log.v("TAG", "Calling get view for " + marker.getId());
             for (final MarkerViewAdapter adapter : mMarkerViewAdapters) {
-                if (adapter != null) {
+                if (adapter.getMarkerClass()==marker.getClass()) {
                     View adaptedView = adapter.getView(marker, convertView, mMapView);
                     if (adaptedView != null) {
                         // hack to hide old marker, todo replace with visibility
@@ -940,7 +942,7 @@ public class MapboxMap {
 
             long[] ids = mMapView.addPolygons(polygons);
 
-            // if unit tests or polygons correcly added to map
+            // if unit tests or polygons correctly added to map
             if (ids == null || ids.length == polygons.size()) {
                 long id = 0;
                 for (int i = 0; i < polygons.size(); i++) {
@@ -1910,6 +1912,13 @@ public class MapboxMap {
 
     public static abstract class MarkerViewAdapter<U extends Marker> {
 
+        private Class<U> persistentClass;
+
+        @SuppressWarnings("unchecked")
+        public MarkerViewAdapter(Context context) {
+            this.persistentClass = (Class<U>) ((ParameterizedType) getClass().getGenericSuperclass()).getActualTypeArguments()[0];
+        }
+
         @AnimatorRes
         private int animSelectOutRes;
 
@@ -1939,6 +1948,10 @@ public class MapboxMap {
 
         public int getAnimExitRes() {
             return animExitRes;
+        }
+
+        public Class<U> getMarkerClass(){
+            return persistentClass;
         }
     }
 
