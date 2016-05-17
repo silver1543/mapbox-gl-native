@@ -673,6 +673,14 @@ public class MapView extends FrameLayout {
         return mContentPaddingBottom;
     }
 
+    int getContentWidth(){
+        return getWidth() - mContentPaddingLeft - mContentPaddingRight;
+    }
+
+    int getContentHeight(){
+        return getHeight() - mContentPaddingBottom - mContentPaddingTop;
+    }
+
     //
     // Zoom
     //
