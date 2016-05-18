@@ -484,25 +484,6 @@ public class MapView extends FrameLayout {
         Log.v(MapboxConstants.TAG, "Amount of child views " + getChildCount());
     }
 
-    public static class Result {
-        private List<Marker> inBounds;
-        private Map<Marker, View> outBounds;
-
-        public Result(List<Marker> inBounds, Map<Marker, View> outBounds) {
-            this.inBounds = inBounds;
-            this.outBounds = outBounds;
-        }
-
-        public List<Marker> getInBounds() {
-            return inBounds;
-        }
-
-        public Map<Marker, View> getOutBounds() {
-            return outBounds;
-        }
-    }
-//    }
-
     /**
      * You must call this method from the parent's {@link android.app.Activity#onSaveInstanceState(Bundle)}
      * or {@link android.app.Fragment#onSaveInstanceState(Bundle)}.
