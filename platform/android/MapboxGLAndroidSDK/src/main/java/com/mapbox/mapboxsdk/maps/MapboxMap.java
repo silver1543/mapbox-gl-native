@@ -31,6 +31,7 @@ import com.mapbox.mapboxsdk.annotations.IconFactory;
 import com.mapbox.mapboxsdk.annotations.InfoWindow;
 import com.mapbox.mapboxsdk.annotations.Marker;
 import com.mapbox.mapboxsdk.annotations.MarkerOptions;
+import com.mapbox.mapboxsdk.annotations.MarkerViewSettings;
 import com.mapbox.mapboxsdk.annotations.Polygon;
 import com.mapbox.mapboxsdk.annotations.PolygonOptions;
 import com.mapbox.mapboxsdk.annotations.Polyline;
@@ -43,7 +44,6 @@ import com.mapbox.mapboxsdk.constants.MyBearingTracking;
 import com.mapbox.mapboxsdk.constants.MyLocationTracking;
 import com.mapbox.mapboxsdk.constants.Style;
 import com.mapbox.mapboxsdk.geometry.LatLng;
-import com.mapbox.mapboxsdk.geometry.LatLngBounds;
 import com.mapbox.mapboxsdk.layers.CustomLayer;
 import com.mapbox.mapboxsdk.location.LocationListener;
 import com.mapbox.mapboxsdk.maps.widgets.MyLocationViewSettings;
@@ -683,7 +683,11 @@ public class MapboxMap {
                     for (final MarkerViewAdapter adapter : mMarkerViewAdapters) {
                         if (adapter.getMarkerClass() == marker.getClass()) {
                             convertView = (View) adapter.getViewReusePool().acquire();
-                            View adaptedView = adapter.getView(marker, convertView, mMapView);
+
+                            MarkerViewSettings markerViewSettings = new MarkerViewSettings(marker);
+                            View adaptedView = adapter.getView(marker, markerViewSettings, convertView, mMapView);
+                            marker.setTopOffsetPixels(markerViewSettings.getInfoWindowTopOffset());
+
                             if (adaptedView != null) {
                                 if (mSelectedMarkers.contains(marker)) {
                                     if (mMarkerViewItemAnimatorInRes != 0) {
@@ -1933,17 +1937,19 @@ public class MapboxMap {
 
     public static abstract class MarkerViewAdapter<U extends Marker> {
 
+        private Context context;
         private final Class<U> persistentClass;
         private final Pools.SimplePool<View> mViewReusePool;
 
         @SuppressWarnings("unchecked")
         public MarkerViewAdapter(Context context) {
+            this.context = context;
             persistentClass = (Class<U>) ((ParameterizedType) getClass().getGenericSuperclass()).getActualTypeArguments()[0];
             mViewReusePool = new Pools.SimplePool<>(20);
         }
 
         @Nullable
-        public abstract View getView(@NonNull U marker, @Nullable View convertView, @NonNull ViewGroup parent);
+        public abstract View getView(@NonNull U marker, @NonNull MarkerViewSettings viewMarker, @NonNull View convertView, @NonNull ViewGroup parent);
 
         public Class<U> getMarkerClass() {
             return persistentClass;
@@ -1951,6 +1957,10 @@ public class MapboxMap {
 
         public Pools.SimplePool<View> getViewReusePool() {
             return mViewReusePool;
+        }
+
+        public Context getContext() {
+            return context;
         }
     }
 

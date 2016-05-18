@@ -23,6 +23,7 @@ import android.widget.Toast;
 import com.mapbox.mapboxsdk.annotations.BaseMarkerOptions;
 import com.mapbox.mapboxsdk.annotations.Marker;
 import com.mapbox.mapboxsdk.annotations.MarkerOptions;
+import com.mapbox.mapboxsdk.annotations.MarkerViewSettings;
 import com.mapbox.mapboxsdk.geometry.LatLng;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.mapboxsdk.maps.OnMapReadyCallback;
@@ -107,7 +108,7 @@ public class BulkMarkerActivity extends AppCompatActivity implements AdapterView
 
                         // reload markers
                         Spinner spinner = (Spinner) findViewById(R.id.spinner);
-                        if(spinner!=null) {
+                        if (spinner != null) {
                             loadBulkMarkers(spinner.getSelectedItemPosition());
                         }
                     }
@@ -127,7 +128,7 @@ public class BulkMarkerActivity extends AppCompatActivity implements AdapterView
 
         @Nullable
         @Override
-        public View getView(@NonNull Marker marker, @Nullable View convertView, @NonNull ViewGroup parent) {
+        public View getView(@NonNull Marker marker, @NonNull MarkerViewSettings markerViewSettings, @Nullable View convertView, @NonNull ViewGroup parent) {
             ViewHolder viewHolder;
             if (convertView == null) {
                 viewHolder = new ViewHolder();

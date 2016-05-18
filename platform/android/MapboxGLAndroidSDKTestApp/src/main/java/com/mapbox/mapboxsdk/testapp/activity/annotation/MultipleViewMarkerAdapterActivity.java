@@ -7,7 +7,6 @@ import android.support.annotation.Nullable;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
@@ -18,6 +17,7 @@ import android.widget.Toast;
 
 import com.mapbox.mapboxsdk.annotations.Marker;
 import com.mapbox.mapboxsdk.annotations.MarkerOptions;
+import com.mapbox.mapboxsdk.annotations.MarkerViewSettings;
 import com.mapbox.mapboxsdk.geometry.LatLng;
 import com.mapbox.mapboxsdk.maps.MapView;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
@@ -120,7 +120,7 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
 
         @Nullable
         @Override
-        public View getView(@NonNull Marker marker, @Nullable View convertView, @NonNull ViewGroup parent) {
+        public View getView(@NonNull Marker marker, @NonNull MarkerViewSettings markerViewSettings, @Nullable View convertView, @NonNull ViewGroup parent) {
             ViewHolder viewHolder;
             if (convertView == null) {
                 viewHolder = new ViewHolder();
@@ -150,7 +150,7 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
 
         @Nullable
         @Override
-        public View getView(@NonNull CountryMarker marker, @Nullable View convertView, @NonNull ViewGroup parent) {
+        public View getView(@NonNull CountryMarker marker, @NonNull MarkerViewSettings markerViewSettings, @Nullable View convertView, @NonNull ViewGroup parent) {
             ViewHolder viewHolder;
             if (convertView == null) {
                 viewHolder = new ViewHolder();
@@ -163,6 +163,9 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
             }
             viewHolder.flag.setImageResource(marker.getFlagRes());
             viewHolder.abbrev.setText(marker.getAbbrevName());
+
+            int infoWindowOffset = (int) getContext().getResources().getDimension(R.dimen.coordinatebounds_margin);
+            markerViewSettings.setInfoWindowTopOffset(-infoWindowOffset);
             return convertView;
         }
 
