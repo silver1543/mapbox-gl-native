@@ -59,26 +59,38 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
 
         final TextView viewCountView = (TextView) findViewById(R.id.countView);
         mMapView = (MapView) findViewById(R.id.mapView);
-        mMapView.setAccessToken(getString(R.string.mapbox_access_token));
         mMapView.onCreate(savedInstanceState);
         mMapView.getMapAsync(new OnMapReadyCallback() {
             @Override
             public void onMapReady(@NonNull MapboxMap mapboxMap) {
                 mMapboxMap = mapboxMap;
 
-                mMapboxMap.addMarker(new CountryMarkerOptions().title("United States").abbrevName("us").flagRes(R.drawable.ic_us).position(new LatLng(38.899774, -77.023237)));
+                // add flag marker
+                mMapboxMap.addMarker(new CountryMarkerOptions()
+                        .viewMarker(true)
+                        .title("United States")
+                        .abbrevName("us")
+                        .flagRes(R.drawable.ic_us)
+                        .position(new LatLng(38.899774, -77.023237))
+                );
+
+                // add text marker
+                for (int i = 0; i < LAT_LNGS.length; i++) {
+                    mMapboxMap.addMarker(new MarkerOptions()
+                            .position(LAT_LNGS[i])
+                            .viewMarker(true)
+                            .title(String.valueOf(i)));
+                }
+
+                // set adapters
                 mMapboxMap.addMarkerViewAdapter(new TextAdapter(MultipleViewMarkerAdapterActivity.this));
                 mMapboxMap.addMarkerViewAdapter(new CountryAdapter(MultipleViewMarkerAdapterActivity.this));
-
-                for (int i = 0; i < LAT_LNGS.length; i++) {
-                    mMapboxMap.addMarker(new MarkerOptions().position(LAT_LNGS[i]).title(String.valueOf(i)));
-                }
 
                 mMapView.addOnMapChangedListener(new MapView.OnMapChangedListener() {
                     @Override
                     public void onMapChanged(@MapView.MapChange int change) {
                         if (change == MapView.REGION_IS_CHANGING || change == MapView.REGION_DID_CHANGE) {
-                            if (!mMapboxMap.getMarkerViewAdapters().isEmpty()) {
+                            if (!mMapboxMap.getMarkerViewAdapters().isEmpty() && viewCountView != null) {
                                 viewCountView.setText("ViewCache size " + (mMapView.getChildCount() - 5));
                             }
                         }

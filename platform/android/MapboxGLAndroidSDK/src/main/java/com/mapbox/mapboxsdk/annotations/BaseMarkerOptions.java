@@ -45,6 +45,10 @@ public abstract class BaseMarkerOptions<U extends Marker, T extends BaseMarkerOp
         return getThis();
     }
 
+    public boolean isViewMarker() {
+        return viewMarker;
+    }
+
     public abstract T getThis();
 
     public abstract U getMarker();
