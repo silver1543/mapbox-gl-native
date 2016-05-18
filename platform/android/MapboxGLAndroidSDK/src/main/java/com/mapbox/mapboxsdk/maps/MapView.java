@@ -95,7 +95,6 @@ import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
@@ -479,64 +478,13 @@ public class MapView extends FrameLayout {
         mViewMarkerBoundsUpdateTime = currentTime + 300;
         mViewMarkersUpdateRunning = true;
 
-        List<Marker> inBounds = new ArrayList<>();
-        Map<Marker, View> outBounds = new HashMap<>();
+        mMapboxMap.invalidateViewMarkersInBounds();
 
-        LatLngBounds bounds = mMapboxMap.getProjection().getVisibleRegion().latLngBounds;
-        long[] ids = mNativeMapView.getAnnotationsInBounds(bounds);
-        Map<Marker, View> markerViews = mMapboxMap.getMarkerViewMap();
-        Log.v(MapboxConstants.TAG, "Annotations in bounds: " + ids.length);
-
-        boolean found;
-        long key;
-
-        // introduce new markers
-        for (long id : ids) {
-            found = false;
-            for (Marker m : markerViews.keySet()) {
-                if (m.getId() == id) {
-                    found = true;
-                }
-            }
-
-            if (!found) {
-                Annotation annotation = mMapboxMap.getAnnotation(id);
-                if (annotation instanceof Marker) {
-                    inBounds.add((Marker) annotation);
-                } else {
-                    Log.v(MapboxConstants.TAG, "Not instance of Marker" + id);
-                }
-            } else {
-                Log.v(MapboxConstants.TAG, "Already added " + id);
-            }
-        }
-
-        // clean up out of bound markers
-        for (Marker m : markerViews.keySet()) {
-            found = false;
-            key = m.getId();
-            for (long id : ids) {
-                if (id == key) {
-                    found = true;
-                }
-            }
-            if (!found) {
-                Annotation annotation = mMapboxMap.getAnnotation(key);
-                if (annotation instanceof Marker) {
-                    outBounds.put((Marker) annotation, markerViews.get(m));
-                } else {
-                    Log.v(MapboxConstants.TAG, "Not instance of Marker" + key);
-                }
-            }
-        }
-
-        Result result = new Result(inBounds, outBounds);
-        mMapboxMap.setViewMarkersBoundsTaskResult(result);
         mViewMarkersUpdateRunning = false;
         Log.v(MapboxConstants.TAG, "Amount of child views " + getChildCount());
     }
 
-    public class Result {
+    public static class Result {
         private List<Marker> inBounds;
         private Map<Marker, View> outBounds;
 
@@ -964,7 +912,7 @@ public class MapView extends FrameLayout {
      * <p>
      * DEPRECATED @see MapboxAccountManager#getAccessToken()
      * </p>
-     * <p>
+     * <p/>
      * Returns the current Mapbox access token used to load map styles and tiles.
      * </p>
      * 
@@ -1163,7 +1111,7 @@ public class MapView extends FrameLayout {
         mNativeMapView.removeAnnotations(ids);
     }
 
-    private List<Marker> getMarkersInBounds(@NonNull LatLngBounds bbox) {
+    List<Marker> getMarkersInBounds(@NonNull LatLngBounds bbox) {
         if (mDestroyed || bbox == null) {
             return new ArrayList<>();
         }
