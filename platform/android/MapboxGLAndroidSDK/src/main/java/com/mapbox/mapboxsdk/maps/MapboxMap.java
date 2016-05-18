@@ -49,6 +49,7 @@ import com.mapbox.mapboxsdk.maps.widgets.MyLocationViewSettings;
 
 import java.lang.reflect.ParameterizedType;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -74,7 +75,7 @@ public class MapboxMap {
     private LongSparseArray<Annotation> mAnnotations;
 
     private List<Marker> mSelectedMarkers;
-    private LongSparseArray<View> mMarkerViews;
+    private Map<Marker, View> mMarkerViewMap;
 
     private List<InfoWindow> mInfoWindows;
     private MapboxMap.InfoWindowAdapter mInfoWindowAdapter;
@@ -112,10 +113,10 @@ public class MapboxMap {
         mTrackingSettings = new TrackingSettings(mMapView, mUiSettings);
         mProjection = new Projection(mapView);
         mAnnotations = new LongSparseArray<>();
-        mMarkerViews = new LongSparseArray<>();
         mMarkerViewAdapters = new ArrayList<>();
         mSelectedMarkers = new ArrayList<>();
         mInfoWindows = new ArrayList<>();
+        mMarkerViewMap = new HashMap<>();
     }
 
     //
@@ -662,7 +663,7 @@ public class MapboxMap {
                     animator.setTarget(convertView);
                     animator.start();
                 }
-                removeMarkerView(outBoundsEntry.getKey().getId());
+                removeMarkerView(outBoundsEntry.getKey());
             }
         }
 
@@ -722,7 +723,7 @@ public class MapboxMap {
                             }
                         });
 
-                        mMarkerViews.append(marker.getId(), adaptedView);
+                        mMarkerViewMap.put(marker, adaptedView);
                         if (convertView == null) {
                             mMapView.addView(adaptedView);
                         }
@@ -1010,16 +1011,15 @@ public class MapboxMap {
         if (annotation instanceof Marker) {
             Marker marker = (Marker) annotation;
             marker.hideInfoWindow();
-            removeMarkerView(annotation.getId());
+            removeMarkerView(marker);
         }
         long id = annotation.getId();
         mMapView.removeAnnotation(id);
         mAnnotations.remove(id);
     }
 
-    private void removeMarkerView(long id) {
-        final View viewHolder = mMarkerViews.get(id);
-        final Marker marker = (Marker) getAnnotation(id);
+    private void removeMarkerView(Marker marker) {
+        final View viewHolder = mMarkerViewMap.get(marker);
         if (viewHolder != null && marker != null) {
             for (final MarkerViewAdapter<?> adapter : mMarkerViewAdapters) {
                 if (adapter.getMarkerClass() == marker.getClass()) {
@@ -1049,7 +1049,7 @@ public class MapboxMap {
             }
 
         }
-        mMarkerViews.remove(id);
+        mMarkerViewMap.remove(marker);
     }
 
     /**
@@ -1075,8 +1075,9 @@ public class MapboxMap {
         for (int i = 0; i < count; i++) {
             Annotation annotation = annotationList.get(i);
             if (annotation instanceof Marker) {
-                ((Marker) annotation).hideInfoWindow();
-                removeMarkerView(annotation.getId());
+                Marker marker = (Marker) annotation;
+                marker.hideInfoWindow();
+                removeMarkerView(marker);
             }
             ids[i] = annotationList.get(i).getId();
         }
@@ -1098,8 +1099,9 @@ public class MapboxMap {
             ids[i] = mAnnotations.keyAt(i);
             annotation = mAnnotations.get(ids[i]);
             if (annotation instanceof Marker) {
-                ((Marker) annotation).hideInfoWindow();
-                removeMarkerView(annotation.getId());
+                Marker marker = (Marker) annotation;
+                marker.hideInfoWindow();
+                removeMarkerView(marker);
             }
         }
         mMapView.removeAnnotations(ids);
@@ -1251,7 +1253,7 @@ public class MapboxMap {
                 marker.hideInfoWindow();
             }
 
-            View viewMarker = mMarkerViews.get(marker.getId());
+            View viewMarker = mMarkerViewMap.get(marker);
             if (viewMarker != null) {
                 Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), mMarkerViewItemAnimatorOutRes);
                 animator.setTarget(viewMarker);
@@ -1385,9 +1387,8 @@ public class MapboxMap {
         return mInfoWindows;
     }
 
-    //  used by MapView
-    LongSparseArray<View> getMarkerViews() {
-        return mMarkerViews;
+    Map<Marker, View> getMarkerViewMap() {
+        return mMarkerViewMap;
     }
 
     private boolean isInfoWindowValidForMarker(@NonNull Marker marker) {

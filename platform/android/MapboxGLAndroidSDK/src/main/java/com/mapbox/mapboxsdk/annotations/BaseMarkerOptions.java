@@ -18,6 +18,7 @@ public abstract class BaseMarkerOptions<U extends Marker, T extends BaseMarkerOp
     protected String snippet;
     protected String title;
     protected Icon icon;
+    protected boolean viewMarker;
 
     public T position(LatLng position) {
         this.position = position;
@@ -36,6 +37,11 @@ public abstract class BaseMarkerOptions<U extends Marker, T extends BaseMarkerOp
 
     public T icon(Icon icon) {
         this.icon = icon;
+        return getThis();
+    }
+
+    public T viewMarker(boolean isViewMarker) {
+        this.viewMarker = isViewMarker;
         return getThis();
     }
 

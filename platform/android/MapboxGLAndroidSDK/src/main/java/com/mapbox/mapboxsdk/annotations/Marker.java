@@ -4,15 +4,16 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.view.View;
 
-import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.mapboxsdk.R;
 import com.mapbox.mapboxsdk.geometry.LatLng;
 import com.mapbox.mapboxsdk.maps.MapView;
+import com.mapbox.mapboxsdk.maps.MapboxMap;
 
 /**
  * Marker is an annotation that shows an icon image at a geographical location.
- *
+ * <p>
  * An {@link InfoWindow} can be shown when a Marker is pressed
+ * </p>
  */
 public class Marker extends Annotation {
 
@@ -20,9 +21,10 @@ public class Marker extends Annotation {
     private String snippet;
     private Icon icon;
     private String title;
-    private InfoWindow infoWindow = null;
-    private boolean infoWindowShown = false;
+    private InfoWindow infoWindow;
+    private boolean infoWindowShown;
     private int topOffsetPixels;
+    private boolean viewMarker;
 
     /**
      * Constructor
@@ -36,6 +38,7 @@ public class Marker extends Annotation {
         snippet = baseMarkerOptions.snippet;
         icon = baseMarkerOptions.icon;
         title = baseMarkerOptions.title;
+        viewMarker = baseMarkerOptions.viewMarker;
     }
 
     public LatLng getPosition() {
@@ -48,6 +51,10 @@ public class Marker extends Annotation {
 
     public String getTitle() {
         return title;
+    }
+
+    public boolean isViewMarker() {
+        return viewMarker;
     }
 
     /**
@@ -103,6 +110,10 @@ public class Marker extends Annotation {
 
     void setTitle(String title) {
         this.title = title;
+    }
+
+    void setViewMarker(boolean viewMarker) {
+        this.viewMarker = viewMarker;
     }
 
     /**

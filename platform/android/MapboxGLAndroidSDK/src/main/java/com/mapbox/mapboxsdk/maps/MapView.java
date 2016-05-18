@@ -25,7 +25,6 @@ import android.location.Location;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.support.annotation.CallSuper;
@@ -35,7 +34,6 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.UiThread;
 import android.support.v4.content.ContextCompat;
-import android.support.v4.util.LongSparseArray;
 import android.support.v4.view.GestureDetectorCompat;
 import android.support.v4.view.ScaleGestureDetectorCompat;
 import android.support.v4.view.animation.FastOutSlowInInterpolator;
@@ -59,7 +57,6 @@ import android.widget.ArrayAdapter;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.ListView;
-import android.widget.TextView;
 import android.widget.ZoomButtonsController;
 
 import com.almeros.android.multitouch.gesturedetectors.RotateGestureDetector;
@@ -479,9 +476,7 @@ public class MapView extends FrameLayout {
         if (mViewMarkersUpdateRunning || currentTime < mViewMarkerBoundsUpdateTime) {
             return;
         }
-
         mViewMarkerBoundsUpdateTime = currentTime + 300;
-
         mViewMarkersUpdateRunning = true;
 
         List<Marker> inBounds = new ArrayList<>();
@@ -489,7 +484,7 @@ public class MapView extends FrameLayout {
 
         LatLngBounds bounds = mMapboxMap.getProjection().getVisibleRegion().latLngBounds;
         long[] ids = mNativeMapView.getAnnotationsInBounds(bounds);
-        LongSparseArray<View> markerViews = mMapboxMap.getMarkerViews();
+        Map<Marker, View> markerViews = mMapboxMap.getMarkerViewMap();
         Log.v(MapboxConstants.TAG, "Annotations in bounds: " + ids.length);
 
         boolean found;
@@ -498,10 +493,8 @@ public class MapView extends FrameLayout {
         // introduce new markers
         for (long id : ids) {
             found = false;
-            for (int i = 0; i < markerViews.size(); i++) {
-                key = markerViews.keyAt(i);
-
-                if (id == key) {
+            for (Marker m : markerViews.keySet()) {
+                if (m.getId() == id) {
                     found = true;
                 }
             }
@@ -519,9 +512,9 @@ public class MapView extends FrameLayout {
         }
 
         // clean up out of bound markers
-        for (int i = 0; i < markerViews.size(); i++) {
+        for (Marker m : markerViews.keySet()) {
             found = false;
-            key = markerViews.keyAt(i);
+            key = m.getId();
             for (long id : ids) {
                 if (id == key) {
                     found = true;
@@ -530,12 +523,13 @@ public class MapView extends FrameLayout {
             if (!found) {
                 Annotation annotation = mMapboxMap.getAnnotation(key);
                 if (annotation instanceof Marker) {
-                    outBounds.put((Marker) annotation, markerViews.get(key));
+                    outBounds.put((Marker) annotation, markerViews.get(m));
                 } else {
                     Log.v(MapboxConstants.TAG, "Not instance of Marker" + key);
                 }
             }
         }
+
         Result result = new Result(inBounds, outBounds);
         mMapboxMap.setViewMarkersBoundsTaskResult(result);
         mViewMarkersUpdateRunning = false;
@@ -1438,27 +1432,29 @@ public class MapView extends FrameLayout {
             mCompassView.update(getDirection());
             mMyLocationView.update();
 
-            LongSparseArray<View> viewMarkers = mMapboxMap.getMarkerViews();
-            for (int i = 0; i < viewMarkers.size(); i++) {
-                mViewHolder = viewMarkers.valueAt(i);
+            Map<Marker, View> viewMarkers = mMapboxMap.getMarkerViewMap();
+            for (Marker marker : viewMarkers.keySet()) {
+                mViewHolder = viewMarkers.get(marker);
                 if (mViewHolder != null) {
-                    Marker marker = (Marker) mMapboxMap.getAnnotation(viewMarkers.keyAt(i));
-                    if (marker != null) {
-                        PointF point = mMapboxMap.getProjection().toScreenLocation(marker.getPosition());
-                        mViewHolder.setX(point.x - (mViewHolder.getMeasuredWidth() / 2));
-                        mViewHolder.setY(point.y - (mViewHolder.getMeasuredHeight() / 2));
+                    PointF point = mMapboxMap.getProjection().toScreenLocation(marker.getPosition());
+                    mViewHolder.setX(point.x - (mViewHolder.getMeasuredWidth() / 2));
+                    mViewHolder.setY(point.y - (mViewHolder.getMeasuredHeight() / 2));
 
-                        if (mViewHolder.getVisibility() == GONE) {
-                            mViewHolder.animate().cancel();
-                            mViewHolder.setAlpha(0);
-                            mViewHolder.animate().alpha(1).setDuration(MapboxConstants.ANIMATION_DURATION_SHORT).setInterpolator(new FastOutSlowInInterpolator()).setListener(new AnimatorListenerAdapter() {
-                                @Override
-                                public void onAnimationStart(Animator animation) {
-                                    super.onAnimationStart(animation);
-                                    mViewHolder.setVisibility(VISIBLE);
-                                }
-                            }).start();
-                        }
+                    if (mViewHolder.getVisibility() == GONE) {
+                        mViewHolder.animate().cancel();
+                        mViewHolder.setAlpha(0);
+                        mViewHolder.animate()
+                                .alpha(1)
+                                .setDuration(MapboxConstants.ANIMATION_DURATION_SHORT)
+                                .setInterpolator(new FastOutSlowInInterpolator())
+                                .setListener(new AnimatorListenerAdapter() {
+                                    @Override
+                                    public void onAnimationStart(Animator animation) {
+                                        super.onAnimationStart(animation);
+                                        mViewHolder.setVisibility(VISIBLE);
+                                    }
+                                })
+                                .start();
                     }
                 }
             }
@@ -1756,7 +1752,7 @@ public class MapView extends FrameLayout {
                         if (annotation.getId() == newSelectedMarkerId) {
                             if (selectedMarkers.isEmpty() || !selectedMarkers.contains(annotation)) {
                                 // only handle click if no marker view is available
-                                if(mMapboxMap.getMarkerViews().get(annotation.getId())==null) {
+                                if (mMapboxMap.getMarkerViewMap().get(annotation) == null) {
                                     mMapboxMap.selectMarker((Marker) annotation);
                                 }
                             }
