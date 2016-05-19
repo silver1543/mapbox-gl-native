@@ -24,7 +24,8 @@ public class Marker extends Annotation {
     private InfoWindow infoWindow;
     private boolean infoWindowShown;
     private int topOffsetPixels;
-    private boolean viewMarker;
+    private int rightOffsetPixels;
+    private MarkerViewSettings markerViewSettings;
 
     /**
      * Constructor
@@ -38,7 +39,7 @@ public class Marker extends Annotation {
         snippet = baseMarkerOptions.snippet;
         icon = baseMarkerOptions.icon;
         title = baseMarkerOptions.title;
-        viewMarker = baseMarkerOptions.viewMarker;
+        markerViewSettings = baseMarkerOptions.markerViewSettings;
     }
 
     public LatLng getPosition() {
@@ -54,7 +55,11 @@ public class Marker extends Annotation {
     }
 
     public boolean isViewMarker() {
-        return viewMarker;
+        return markerViewSettings != null;
+    }
+
+    public MarkerViewSettings getMarkerViewSettings(){
+        return markerViewSettings;
     }
 
     /**
@@ -112,8 +117,8 @@ public class Marker extends Annotation {
         this.title = title;
     }
 
-    void setViewMarker(boolean viewMarker) {
-        this.viewMarker = viewMarker;
+    void setViewMarkerSettings(MarkerViewSettings markerViewSettings) {
+        this.markerViewSettings = markerViewSettings;
     }
 
     /**
@@ -140,7 +145,7 @@ public class Marker extends Annotation {
     }
 
     private InfoWindow showInfoWindow(InfoWindow iw, MapView mapView) {
-        iw.open(mapView, this, getPosition(), 0, topOffsetPixels);
+        iw.open(mapView, this, getPosition(), rightOffsetPixels, topOffsetPixels);
         infoWindowShown = true;
         return iw;
     }
@@ -157,6 +162,13 @@ public class Marker extends Annotation {
      */
     public void setTopOffsetPixels(int topOffsetPixels) {
         this.topOffsetPixels = topOffsetPixels;
+    }
+
+    /**
+     * Do not use this method. Used internally by the SDK.
+     */
+    public void setRightOffsetPixels(int rightOffsetPixels) {
+        this.rightOffsetPixels = rightOffsetPixels;
     }
 
     @Override

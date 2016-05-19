@@ -39,8 +39,8 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
             new LatLng(38.897424, -77.036508),
             new LatLng(38.897642, -77.041980),
             new LatLng(38.889876, -77.008849),
-            new LatLng(38.889441, -77.050134),
-            new LatLng(38.902580, -77.050102)};
+            new LatLng(38.889441, -77.050134)
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,20 +65,34 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
             public void onMapReady(@NonNull MapboxMap mapboxMap) {
                 mMapboxMap = mapboxMap;
 
+                int infoWindowOffset = (int) getResources().getDimension(R.dimen.coordinatebounds_margin);
+
                 // add flag marker
                 mMapboxMap.addMarker(new CountryMarkerOptions()
-                        .viewMarker(true)
+                        .markerViewSettings(new MarkerViewSettings.Builder()
+                                .infoWindowOffset(0, infoWindowOffset)
+                                .build())
                         .title("United States")
                         .abbrevName("us")
                         .flagRes(R.drawable.ic_us)
                         .position(new LatLng(38.899774, -77.023237))
                 );
 
-                // add text marker
+                mMapboxMap.addMarker(new CountryMarkerOptions()
+                        .title("United States")
+                        .abbrevName("us")
+                        .flagRes(R.drawable.ic_us)
+                        .position(new LatLng(38.902580, -77.050102))
+                );
+
+                // add text markers
                 for (int i = 0; i < LAT_LNGS.length; i++) {
                     mMapboxMap.addMarker(new MarkerOptions()
                             .position(LAT_LNGS[i])
-                            .viewMarker(true)
+                            .markerViewSettings(new MarkerViewSettings.Builder()
+                                    .animSelectRes(R.animator.scale_up)
+                                    .animDeselectRes(R.animator.scale_down)
+                                    .build())
                             .title(String.valueOf(i)));
                 }
 
@@ -97,7 +111,6 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
                     }
                 });
 
-                mMapboxMap.setMarkerViewItemAnimation(R.animator.scale_up, R.animator.scale_down);
                 mMapboxMap.setOnMarkerViewClickListener(new MapboxMap.OnMarkerViewClickListener() {
                     @Override
                     public boolean onMarkerClick(@NonNull Marker marker, @NonNull View view, @NonNull MapboxMap.MarkerViewAdapter adapter) {
@@ -163,9 +176,6 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
             }
             viewHolder.flag.setImageResource(marker.getFlagRes());
             viewHolder.abbrev.setText(marker.getAbbrevName());
-
-            int infoWindowOffset = (int) getContext().getResources().getDimension(R.dimen.coordinatebounds_margin);
-            markerViewSettings.setInfoWindowTopOffset(-infoWindowOffset);
             return convertView;
         }
 

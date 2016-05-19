@@ -6,6 +6,8 @@ import android.animation.AnimatorInflater;
 import android.animation.AnimatorListenerAdapter;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Point;
+import android.graphics.PointF;
 import android.location.Location;
 import android.os.SystemClock;
 import android.support.annotation.AnimatorRes;
@@ -83,8 +85,6 @@ public class MapboxMap {
     private MapboxMap.InfoWindowAdapter mInfoWindowAdapter;
 
     private OnMarkerViewClickListener mOnMarkerViewClickListener;
-    private int mMarkerViewItemAnimatorInRes;
-    private int mMarkerViewItemAnimatorOutRes;
     private Bitmap mViewMarkerBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
 
     private boolean mMyLocationEnabled;
@@ -664,8 +664,10 @@ public class MapboxMap {
             if (!markers.contains(m)) {
                 // remove marker
                 convertView = mMarkerViewMap.get(m);
-                if (mMarkerViewItemAnimatorOutRes != 0) {
-                    Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), mMarkerViewItemAnimatorOutRes);
+
+                int deselectAnimRes = m.getMarkerViewSettings().getAnimDeselectRes();
+                if (deselectAnimRes != 0) {
+                    Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), deselectAnimRes);
                     animator.setDuration(0);
                     animator.setTarget(convertView);
                     animator.start();
@@ -682,16 +684,22 @@ public class MapboxMap {
                     Log.v("TAG", "Calling get view for " + marker.getId());
                     for (final MarkerViewAdapter adapter : mMarkerViewAdapters) {
                         if (adapter.getMarkerClass() == marker.getClass()) {
+                            final MarkerViewSettings markerViewSettings = marker.getMarkerViewSettings();
                             convertView = (View) adapter.getViewReusePool().acquire();
-
-                            MarkerViewSettings markerViewSettings = new MarkerViewSettings(marker);
                             View adaptedView = adapter.getView(marker, markerViewSettings, convertView, mMapView);
-                            marker.setTopOffsetPixels(markerViewSettings.getInfoWindowTopOffset());
+
+                            // set user provided offset to view marker
+                            Point infoWindowOffset = markerViewSettings.getInfoWindowOffset();
+                            marker.setTopOffsetPixels(infoWindowOffset.y);
+                            marker.setRightOffsetPixels(infoWindowOffset.x);
 
                             if (adaptedView != null) {
                                 if (mSelectedMarkers.contains(marker)) {
-                                    if (mMarkerViewItemAnimatorInRes != 0) {
-                                        Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), mMarkerViewItemAnimatorInRes);
+                                    // if a marker to be shown was selected
+                                    // replay that animation with duration 0
+                                    int selectAnimRes = markerViewSettings.getAnimSelectRes();
+                                    if (selectAnimRes != 0) {
+                                        Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), selectAnimRes);
                                         animator.setDuration(0);
                                         animator.setTarget(convertView);
                                         animator.start();
@@ -701,15 +709,15 @@ public class MapboxMap {
                                 adaptedView.setOnClickListener(new View.OnClickListener() {
                                     @Override
                                     public void onClick(View v) {
-
                                         boolean clickHandled = false;
                                         if (mOnMarkerViewClickListener != null) {
                                             clickHandled = mOnMarkerViewClickListener.onMarkerClick(marker, v, adapter);
                                         }
 
                                         if (!clickHandled) {
-                                            if (mMarkerViewItemAnimatorInRes != 0) {
-                                                Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), mMarkerViewItemAnimatorInRes);
+                                            int enterAnimatorRes = markerViewSettings.getAnimSelectRes();
+                                            if (enterAnimatorRes != 0) {
+                                                Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), enterAnimatorRes);
                                                 animator.setTarget(v);
                                                 animator.addListener(new AnimatorListenerAdapter() {
                                                     @Override
@@ -1266,9 +1274,12 @@ public class MapboxMap {
 
             View viewMarker = mMarkerViewMap.get(marker);
             if (viewMarker != null) {
-                Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), mMarkerViewItemAnimatorOutRes);
-                animator.setTarget(viewMarker);
-                animator.start();
+                int deselectAnimatorRes = marker.getMarkerViewSettings().getAnimDeselectRes();
+                if(deselectAnimatorRes!=0) {
+                    Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), deselectAnimatorRes);
+                    animator.setTarget(viewMarker);
+                    animator.start();
+                }
             }
         }
 
@@ -1305,7 +1316,7 @@ public class MapboxMap {
     private Marker prepareMarker(BaseMarkerOptions markerOptions) {
         Marker marker = markerOptions.getMarker();
         if (markerOptions.isViewMarker()) {
-            Icon icon = IconFactory.recreate("viewMarker", mViewMarkerBitmap);
+            Icon icon = IconFactory.recreate("markerViewSettings", mViewMarkerBitmap);
             marker.setIcon(icon);
         } else {
             Icon icon = mMapView.loadIconForMarker(marker);
@@ -1327,25 +1338,6 @@ public class MapboxMap {
 
     public void setOnMarkerViewClickListener(@Nullable OnMarkerViewClickListener listener) {
         mOnMarkerViewClickListener = listener;
-    }
-
-    public OnMarkerViewClickListener getOnMarkerViewClickListener() {
-        return mOnMarkerViewClickListener;
-    }
-
-    public void setMarkerViewItemAnimation(@AnimatorRes int animationInRes, @AnimatorRes int animationOutRes) {
-        mMarkerViewItemAnimatorInRes = animationInRes;
-        mMarkerViewItemAnimatorOutRes = animationOutRes;
-    }
-
-    @AnimatorRes
-    public int getMarkerViewItemAnimatorInRes() {
-        return mMarkerViewItemAnimatorInRes;
-    }
-
-    @AnimatorRes
-    public int getMarkerViewItemAnimatorOutRes() {
-        return mMarkerViewItemAnimatorOutRes;
     }
 
     //
