@@ -5,6 +5,8 @@
 #include <mbgl/util/math.hpp>
 #include <mbgl/math/clamp.hpp>
 
+#include <cmath>
+
 namespace mbgl {
 
 TransformState::TransformState(ConstrainMode constrainMode_, ViewportMode viewportMode_)
@@ -235,7 +237,10 @@ ScreenCoordinate TransformState::latLngToScreenCoordinate(const LatLng& latLng) 
     Point<double> pt = project(latLng) / double(util::tileSize);
     vec4 c = {{ pt.x, pt.y, 0, 1 }};
     matrix::transformMat4(p, c, mat);
-    return { p[0] / p[3], height - p[1] / p[3] };
+    return {
+        std::isnan(p[0]) || std::isnan(p[3]) ? 0 : p[0] / p[3],
+        std::isnan(p[1]) || std::isnan(p[3]) ? 0 : height - p[1] / p[3]
+    };
 }
 
 LatLng TransformState::screenCoordinateToLatLng(const ScreenCoordinate& point, LatLng::WrapMode wrapMode) const {
@@ -260,14 +265,21 @@ LatLng TransformState::screenCoordinateToLatLng(const ScreenCoordinate& point, L
     matrix::transformMat4(coord0, point0, inverted);
     matrix::transformMat4(coord1, point1, inverted);
 
-    double w0 = coord0[3];
-    double w1 = coord1[3];
+    double w0 = std::isnan(coord0[3]) ? 1 : coord0[3];
+    double w1 = std::isnan(coord1[3]) ? 1 : coord1[3];
 
-    Point<double> p0 = Point<double>(coord0[0], coord0[1]) / w0;
-    Point<double> p1 = Point<double>(coord1[0], coord1[1]) / w1;
+    Point<double> p0 = {
+        std::isnan(coord0[0]) ? 0 : coord0[0] / w0,
+        std::isnan(coord0[1]) ? 0 : coord0[1] / w0,
+    };
+    Point<double> p1 = {
+        std::isnan(coord1[0]) ? 0 : coord1[0] / w1,
+        std::isnan(coord1[1]) ? 0 : coord1[1] / w1,
+    };
 
-    double z0 = coord0[2] / w0;
-    double z1 = coord1[2] / w1;
+    double z0 = std::isnan(coord0[2]) ? 0 : coord0[2] / w0;
+    double z1 = std::isnan(coord1[2]) ? 0 : coord1[2] / w1;
+
     double t = z0 == z1 ? 0 : (targetZ - z0) / (z1 - z0);
 
     return unproject(util::interpolate(p0, p1, t), scale, wrapMode);

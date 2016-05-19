@@ -474,3 +474,24 @@ TEST(Transform, Camera) {
     transform.updateTransitions(transform.getTransitionStart() + transform.getTransitionDuration());
     ASSERT_FALSE(transform.inTransition());
 }
+
+TEST(Transform, DefaultTransform) {
+    Transform transform;
+    const TransformState& state = transform.getState();
+
+    ScreenCoordinate center = {};
+    LatLng nullIsland = {};
+
+    LatLng latLng = state.screenCoordinateToLatLng(center);
+    ASSERT_DOUBLE_EQ(latLng.latitude, util::LATITUDE_MAX);
+    ASSERT_DOUBLE_EQ(latLng.longitude, -util::LONGITUDE_MAX);
+
+    ScreenCoordinate point = state.latLngToScreenCoordinate(nullIsland);
+    ASSERT_DOUBLE_EQ(point.x, center.x);
+    ASSERT_DOUBLE_EQ(point.y, center.y);
+
+    ASSERT_FALSE(transform.resize({{}}));
+
+    uint16_t max = std::numeric_limits<uint16_t>::max();
+    ASSERT_TRUE(transform.resize({{ max, max }}));
+}
