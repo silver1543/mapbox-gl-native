@@ -56,10 +56,10 @@ public class ViewMarkerActivity extends AppCompatActivity implements OnMapReadyC
     @Override
     public void onMapReady(final MapboxMap mapboxMap) {
         final List<BaseMarkerOptions> countries = new ArrayList<>();
-        countries.add(new CountryMarkerOptions().markerViewSettings(new MarkerViewSettings.Builder().build()).title("China").abbrevName("ch").flagRes(R.drawable.ic_china).position(new LatLng(31.230416, 121.473701)));
-        countries.add(new CountryMarkerOptions().markerViewSettings(new MarkerViewSettings.Builder().build()).title("United States").abbrevName("us").flagRes(R.drawable.ic_us).position(new LatLng(38.907192, -77.036871)));
-        countries.add(new CountryMarkerOptions().markerViewSettings(new MarkerViewSettings.Builder().build()).title("Brazil").abbrevName("br").flagRes(R.drawable.ic_brazil).position(new LatLng(-15.798200, -47.922363)));
-        countries.add(new CountryMarkerOptions().markerViewSettings(new MarkerViewSettings.Builder().build()).title("Germany").abbrevName("de").flagRes(R.drawable.ic_germany).position(new LatLng(52.520007, 13.404954)));
+        countries.add(new CountryMarkerOptions().markerView(true).title("China").abbrevName("ch").flagRes(R.drawable.ic_china).position(new LatLng(31.230416, 121.473701)));
+        countries.add(new CountryMarkerOptions().markerView(true).title("United States").abbrevName("us").flagRes(R.drawable.ic_us).position(new LatLng(38.907192, -77.036871)));
+        countries.add(new CountryMarkerOptions().markerView(true).title("Brazil").abbrevName("br").flagRes(R.drawable.ic_brazil).position(new LatLng(-15.798200, -47.922363)));
+        countries.add(new CountryMarkerOptions().markerView(true).title("Germany").abbrevName("de").flagRes(R.drawable.ic_germany).position(new LatLng(52.520007, 13.404954)));
         final List<Marker> markers = mapboxMap.addMarkers(countries);
 
         // Add view marker adapter
@@ -95,7 +95,7 @@ public class ViewMarkerActivity extends AppCompatActivity implements OnMapReadyC
 
         @Nullable
         @Override
-        public View getView(@NonNull CountryMarker marker, @NonNull MarkerViewSettings markerViewSettings, @Nullable View convertView, @NonNull ViewGroup parent) {
+        public View getView(@NonNull CountryMarker marker, @Nullable View convertView, @NonNull ViewGroup parent) {
             ViewHolder viewHolder;
             if (convertView == null) {
                 viewHolder = new ViewHolder();

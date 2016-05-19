@@ -69,9 +69,7 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
 
                 // add flag marker
                 mMapboxMap.addMarker(new CountryMarkerOptions()
-                        .markerViewSettings(new MarkerViewSettings.Builder()
-                                .infoWindowOffset(0, infoWindowOffset)
-                                .build())
+                        .markerView(true)
                         .title("United States")
                         .abbrevName("us")
                         .flagRes(R.drawable.ic_us)
@@ -89,10 +87,7 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
                 for (int i = 0; i < LAT_LNGS.length; i++) {
                     mMapboxMap.addMarker(new MarkerOptions()
                             .position(LAT_LNGS[i])
-                            .markerViewSettings(new MarkerViewSettings.Builder()
-                                    .animSelectRes(R.animator.scale_up)
-                                    .animDeselectRes(R.animator.scale_down)
-                                    .build())
+                            .markerView(true)
                             .title(String.valueOf(i)));
                 }
 
@@ -133,7 +128,7 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
 
         @Nullable
         @Override
-        public View getView(@NonNull Marker marker, @NonNull MarkerViewSettings markerViewSettings, @Nullable View convertView, @NonNull ViewGroup parent) {
+        public View getView(@NonNull Marker marker, @Nullable View convertView, @NonNull ViewGroup parent) {
             ViewHolder viewHolder;
             if (convertView == null) {
                 viewHolder = new ViewHolder();
@@ -145,6 +140,21 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
             }
             viewHolder.title.setText(marker.getTitle());
             return convertView;
+        }
+
+        @Override
+        public MarkerViewSettings getMarkerViewSettings(Marker marker) {
+            MarkerViewSettings.Builder builder = new MarkerViewSettings.Builder()
+                    .animSelectRes(R.animator.scale_up)
+                    .animDeselectRes(R.animator.scale_down)
+                    .infoWindowOffset(0, (int) getContext().getResources()
+                            .getDimension(R.dimen.fab_margin));
+
+            if (marker.getId() == 0) {
+                builder.flat(true);
+            }
+
+            return builder.build();
         }
 
         private static class ViewHolder {
@@ -163,7 +173,7 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
 
         @Nullable
         @Override
-        public View getView(@NonNull CountryMarker marker, @NonNull MarkerViewSettings markerViewSettings, @Nullable View convertView, @NonNull ViewGroup parent) {
+        public View getView(@NonNull CountryMarker marker, @Nullable View convertView, @NonNull ViewGroup parent) {
             ViewHolder viewHolder;
             if (convertView == null) {
                 viewHolder = new ViewHolder();
@@ -177,6 +187,17 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
             viewHolder.flag.setImageResource(marker.getFlagRes());
             viewHolder.abbrev.setText(marker.getAbbrevName());
             return convertView;
+        }
+
+        @Override
+        public MarkerViewSettings getMarkerViewSettings(Marker marker) {
+            return new MarkerViewSettings.Builder()
+                    .animSelectRes(R.animator.scale_up)
+                    .animDeselectRes(R.animator.scale_down)
+                    .infoWindowOffset(0, (int) getContext().getResources()
+                            .getDimension(R.dimen.coordinatebounds_margin))
+                    .flat(true)
+                    .build();
         }
 
         private static class ViewHolder {

@@ -42,7 +42,7 @@ public class BulkMarkerActivity extends AppCompatActivity implements AdapterView
 
     private MapboxMap mMapboxMap;
     private MapView mMapView;
-    private MarkerViewSettings mMarkerViewSettings;
+    private boolean mCustomMarkerView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -83,7 +83,7 @@ public class BulkMarkerActivity extends AppCompatActivity implements AdapterView
                 @Override
                 public void onClick(View v) {
                     if (mMapboxMap != null) {
-                        mMarkerViewSettings = new MarkerViewSettings.Builder().build();
+                        mCustomMarkerView = true;
 
                         fab.animate().alpha(0).start();
                         mMapboxMap.addMarkerViewAdapter(new TextAdapter(BulkMarkerActivity.this));
@@ -128,7 +128,7 @@ public class BulkMarkerActivity extends AppCompatActivity implements AdapterView
 
         @Nullable
         @Override
-        public View getView(@NonNull Marker marker, @NonNull MarkerViewSettings markerViewSettings, @Nullable View convertView, @NonNull ViewGroup parent) {
+        public View getView(@NonNull Marker marker, @Nullable View convertView, @NonNull ViewGroup parent) {
             ViewHolder viewHolder;
             if (convertView == null) {
                 viewHolder = new ViewHolder();
@@ -155,7 +155,7 @@ public class BulkMarkerActivity extends AppCompatActivity implements AdapterView
 
     private void loadBulkMarkers(int selectedSpinnerPosition) {
         int markersAmount = Integer.valueOf(getResources().getStringArray(R.array.bulk_marker_list)[selectedSpinnerPosition]);
-        new LoadBulkMarkerTask(this, mMapboxMap, markersAmount, mMarkerViewSettings).execute();
+        new LoadBulkMarkerTask(this, mMapboxMap, markersAmount, mCustomMarkerView).execute();
     }
 
     @Override
@@ -211,15 +211,15 @@ public class BulkMarkerActivity extends AppCompatActivity implements AdapterView
         private Context mAppContext;
         private ProgressDialog mProgressDialog;
         private int mAmount;
-        private MarkerViewSettings mMarkerViewSettings;
+        private boolean mMarkerView;
 
-        public LoadBulkMarkerTask(Context context, MapboxMap mapboxMap, int amount, MarkerViewSettings markerViewSettings) {
+        public LoadBulkMarkerTask(Context context, MapboxMap mapboxMap, int amount, boolean markerView) {
             mMapboxMap = mapboxMap;
             mapboxMap.removeAnnotations();
             mProgressDialog = ProgressDialog.show(context, "Loading", "Fetching markers", false);
             mAppContext = context.getApplicationContext();
             mAmount = amount;
-            mMarkerViewSettings = markerViewSettings;
+            mMarkerView = markerView;
         }
 
         @Override
@@ -239,7 +239,7 @@ public class BulkMarkerActivity extends AppCompatActivity implements AdapterView
                     location = locations.get(i);
                     markerOptions.add(new MarkerOptions()
                             .position(location)
-                            .markerViewSettings(mMarkerViewSettings)
+                            .markerView(mMarkerView)
                             .title(String.valueOf(i))
                             .snippet(formatter.format(location.getLatitude()) + ", " + formatter.format(location.getLongitude())));
                 }

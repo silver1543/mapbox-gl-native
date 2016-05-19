@@ -21,11 +21,14 @@ public class Marker extends Annotation {
     private String snippet;
     private Icon icon;
     private String title;
+
     private InfoWindow infoWindow;
     private boolean infoWindowShown;
+
     private int topOffsetPixels;
     private int rightOffsetPixels;
-    private MarkerViewSettings markerViewSettings;
+
+    private boolean markerView;
 
     /**
      * Constructor
@@ -39,7 +42,7 @@ public class Marker extends Annotation {
         snippet = baseMarkerOptions.snippet;
         icon = baseMarkerOptions.icon;
         title = baseMarkerOptions.title;
-        markerViewSettings = baseMarkerOptions.markerViewSettings;
+        markerView = baseMarkerOptions.markerView;
     }
 
     public LatLng getPosition() {
@@ -55,11 +58,7 @@ public class Marker extends Annotation {
     }
 
     public boolean isViewMarker() {
-        return markerViewSettings != null;
-    }
-
-    public MarkerViewSettings getMarkerViewSettings(){
-        return markerViewSettings;
+        return markerView;
     }
 
     /**
@@ -117,8 +116,8 @@ public class Marker extends Annotation {
         this.title = title;
     }
 
-    void setViewMarkerSettings(MarkerViewSettings markerViewSettings) {
-        this.markerViewSettings = markerViewSettings;
+    void setMarkerView(boolean isMarkerView){
+        markerView = isMarkerView;
     }
 
     /**
