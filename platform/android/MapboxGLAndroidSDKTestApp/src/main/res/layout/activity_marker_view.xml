@@ -9,17 +9,17 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="@color/primary"
-        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"/>
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar" />
 
     <com.mapbox.mapboxsdk.maps.MapView
         android:id="@id/mapView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        app:center_latitude="38.87031"
         android:layout_below="@id/toolbar"
-        app:center_longitude="-77.00897"
+        app:center_latitude="38.907192"
+        app:center_longitude="-77.036871"
         app:style_url="@string/style_mapbox_streets"
-        app:zoom="10" />
+        app:zoom="12" />
 
     <TextView
         android:id="@+id/countView"
@@ -27,6 +27,6 @@
         android:layout_height="wrap_content"
         android:layout_below="@id/toolbar"
         android:padding="16dp"
-        android:textSize="20sp"/>
+        android:textSize="20sp" />
 
 </RelativeLayout>

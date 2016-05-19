@@ -1347,8 +1347,6 @@ public class MapView extends FrameLayout {
                 return;
             }
 
-            Log.v(MapboxConstants.TAG, "SurfaceTexture has been updated");
-
             mCompassView.update(getDirection());
             mMyLocationView.update();
 

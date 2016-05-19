@@ -144,7 +144,7 @@ public class ViewMarkerAdapterActivity extends AppCompatActivity {
                     .animSelectRes(R.animator.scale_up)
                     .animDeselectRes(R.animator.scale_down)
                     .infoWindowOffset(0, (int) getContext().getResources()
-                            .getDimension(R.dimen.fab_margin));
+                            .getDimension(R.dimen.coordinatebounds_margin));
 
             if (marker.getId() == 0) {
                 builder.flat(true);
@@ -188,10 +188,10 @@ public class ViewMarkerAdapterActivity extends AppCompatActivity {
         @Override
         public MarkerViewSettings getMarkerViewSettings(Marker marker) {
             return new MarkerViewSettings.Builder()
-                    .animSelectRes(R.animator.scale_up)
-                    .animDeselectRes(R.animator.scale_down)
+                    .animSelectRes(R.animator.rotate_360)
+                    .animDeselectRes(R.animator.rotate_360)
                     .infoWindowOffset(0, (int) getContext().getResources()
-                            .getDimension(R.dimen.coordinatebounds_margin))
+                            .getDimension(R.dimen.fab_margin))
                     .flat(true)
                     .build();
         }

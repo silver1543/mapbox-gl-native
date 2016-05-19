@@ -653,8 +653,6 @@ public class MapboxMap {
 
     void invalidateViewMarkersInBounds() {
         List<Marker> markers = mMapView.getMarkersInBounds(mProjection.getVisibleRegion().latLngBounds);
-        Log.v(MapboxConstants.TAG, "Annotations in bounds: " + markers.size());
-
         View convertView;
 
         // remove old markers
