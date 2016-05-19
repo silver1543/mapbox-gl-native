@@ -26,7 +26,7 @@ import com.mapbox.mapboxsdk.testapp.R;
 import com.mapbox.mapboxsdk.testapp.model.annotations.CountryMarker;
 import com.mapbox.mapboxsdk.testapp.model.annotations.CountryMarkerOptions;
 
-public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
+public class ViewMarkerAdapterActivity extends AppCompatActivity {
 
     private MapboxMap mMapboxMap;
     private MapView mMapView;
@@ -45,14 +45,13 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_marker_bulk);
+        setContentView(R.layout.activity_marker_view);
 
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
         final ActionBar actionBar = getSupportActionBar();
         if (actionBar != null) {
-            actionBar.setDisplayShowTitleEnabled(false);
             actionBar.setDisplayHomeAsUpEnabled(true);
             actionBar.setDisplayShowHomeEnabled(true);
         }
@@ -82,17 +81,15 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
                         .position(new LatLng(38.899774, -77.023237))
                 );
 
+                // default GL marker
                 mMapboxMap.addMarker(new CountryMarkerOptions()
                         .title("United States")
-                        .abbrevName("us")
-                        .flagRes(R.drawable.ic_us)
                         .position(new LatLng(38.902580, -77.050102))
                 );
 
-
                 // set adapters
-                mMapboxMap.addMarkerViewAdapter(new TextAdapter(MultipleViewMarkerAdapterActivity.this));
-                mMapboxMap.addMarkerViewAdapter(new CountryAdapter(MultipleViewMarkerAdapterActivity.this));
+                mMapboxMap.addMarkerViewAdapter(new TextAdapter(ViewMarkerAdapterActivity.this));
+                mMapboxMap.addMarkerViewAdapter(new CountryAdapter(ViewMarkerAdapterActivity.this));
 
                 mMapView.addOnMapChangedListener(new MapView.OnMapChangedListener() {
                     @Override
@@ -108,7 +105,7 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
                 mMapboxMap.setOnMarkerViewClickListener(new MapboxMap.OnMarkerViewClickListener() {
                     @Override
                     public boolean onMarkerClick(@NonNull Marker marker, @NonNull View view, @NonNull MapboxMap.MarkerViewAdapter adapter) {
-                        Toast.makeText(MultipleViewMarkerAdapterActivity.this, "Hello " + marker.getId(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(ViewMarkerAdapterActivity.this, "Hello " + marker.getId(), Toast.LENGTH_SHORT).show();
                         return false;
                     }
                 });
