@@ -687,24 +687,29 @@ public class MapboxMap {
                     for (final MarkerViewAdapter adapter : mMarkerViewAdapters) {
                         if (adapter.getMarkerClass() == marker.getClass()) {
 
-                            if (mMarkerViewSettingsMap.get(marker.getId()) == null) {
-                                mMarkerViewSettingsMap.put(marker.getId(), adapter.getMarkerViewSettings(marker));
+                            MarkerViewSettings settings = mMarkerViewSettingsMap.get(marker.getId());
+                            if (settings == null) {
+                                settings = adapter.getMarkerViewSettings(marker);
+                                mMarkerViewSettingsMap.put(marker.getId(), settings);
                             }
 
                             convertView = (View) adapter.getViewReusePool().acquire();
                             View adaptedView = adapter.getView(marker, convertView, mMapView);
 
-                            // set user provided offset to view marker
-                            final MarkerViewSettings markerViewSettings = mMarkerViewSettingsMap.get(marker.getId());
-                            Point infoWindowOffset = markerViewSettings.getInfoWindowOffset();
+                            // infowindow offset
+                            Point infoWindowOffset = settings.getInfoWindowOffset();
                             marker.setTopOffsetPixels(infoWindowOffset.y);
                             marker.setRightOffsetPixels(infoWindowOffset.x);
 
                             if (adaptedView != null) {
+
+                                // tilt
+                                adaptedView.setRotationX(settings.getTiltValue());
+
                                 if (mSelectedMarkers.contains(marker)) {
                                     // if a marker to be shown was selected
                                     // replay that animation with duration 0
-                                    int selectAnimRes = markerViewSettings.getAnimSelectRes();
+                                    int selectAnimRes = settings.getAnimSelectRes();
                                     if (selectAnimRes != 0) {
                                         Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), selectAnimRes);
                                         animator.setDuration(0);
@@ -713,6 +718,7 @@ public class MapboxMap {
                                     }
                                 }
 
+                                final int animSelectRes = settings.getAnimSelectRes();
                                 adaptedView.setOnClickListener(new View.OnClickListener() {
                                     @Override
                                     public void onClick(View v) {
@@ -722,9 +728,8 @@ public class MapboxMap {
                                         }
 
                                         if (!clickHandled) {
-                                            int enterAnimatorRes = markerViewSettings.getAnimSelectRes();
-                                            if (enterAnimatorRes != 0) {
-                                                Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), enterAnimatorRes);
+                                            if (animSelectRes != 0) {
+                                                Animator animator = AnimatorInflater.loadAnimator(mMapView.getContext(), animSelectRes);
                                                 animator.setTarget(v);
                                                 animator.addListener(new AnimatorListenerAdapter() {
                                                     @Override
@@ -757,6 +762,18 @@ public class MapboxMap {
             }
         }
     }
+
+    void setTilt(double tilt) {
+        for (Map.Entry<Marker, View> entry : mMarkerViewMap.entrySet()) {
+            MarkerViewSettings settings = mMarkerViewSettingsMap.get(entry.getKey().getId());
+            if (settings.isFlat()) {
+                settings.setTiltValue((float) tilt);
+                entry.getValue().setRotationX((float) tilt);
+            }
+        }
+        mMapView.setTilt(tilt);
+    }
+
 
     /**
      * <p>

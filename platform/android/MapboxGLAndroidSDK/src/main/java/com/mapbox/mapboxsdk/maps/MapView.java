@@ -623,13 +623,9 @@ public class MapView extends FrameLayout {
         return mNativeMapView.getPitch();
     }
 
-    void setTilt(Double pitch, @Nullable Long duration) {
-        long actualDuration = 0;
-        if (duration != null) {
-            actualDuration = duration;
-        }
+    void setTilt(Double pitch) {
         mMyLocationView.setTilt(pitch);
-        mNativeMapView.setPitch(pitch, actualDuration);
+        mNativeMapView.setPitch(pitch, 0);
     }
 
 
@@ -2003,7 +1999,7 @@ public class MapView extends FrameLayout {
             pitch = Math.max(MapboxConstants.MINIMUM_TILT, Math.min(MapboxConstants.MAXIMUM_TILT, pitch));
 
             // Tilt the map
-            setTilt(pitch, null);
+            mMapboxMap.setTilt(pitch);
 
             return true;
         }

@@ -65,7 +65,13 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
             public void onMapReady(@NonNull MapboxMap mapboxMap) {
                 mMapboxMap = mapboxMap;
 
-                int infoWindowOffset = (int) getResources().getDimension(R.dimen.coordinatebounds_margin);
+                // add text markers
+                for (int i = 0; i < LAT_LNGS.length; i++) {
+                    mMapboxMap.addMarker(new MarkerOptions()
+                            .position(LAT_LNGS[i])
+                            .markerView(true)
+                            .title(String.valueOf(i)));
+                }
 
                 // add flag marker
                 mMapboxMap.addMarker(new CountryMarkerOptions()
@@ -83,13 +89,6 @@ public class MultipleViewMarkerAdapterActivity extends AppCompatActivity {
                         .position(new LatLng(38.902580, -77.050102))
                 );
 
-                // add text markers
-                for (int i = 0; i < LAT_LNGS.length; i++) {
-                    mMapboxMap.addMarker(new MarkerOptions()
-                            .position(LAT_LNGS[i])
-                            .markerView(true)
-                            .title(String.valueOf(i)));
-                }
 
                 // set adapters
                 mMapboxMap.addMarkerViewAdapter(new TextAdapter(MultipleViewMarkerAdapterActivity.this));

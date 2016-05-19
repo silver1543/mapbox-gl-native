@@ -18,6 +18,8 @@ public class MarkerViewSettings implements Parcelable {
     private int animDeselectRes;
     private int animExitRes;
 
+    private float tiltValue;
+
     MarkerViewSettings(PointF centerOffset, Point infoWindowOffset, boolean flat, int animEnterRes, int animSelectRes, int animDeselectRes, int animExitRes) {
         this.centerOffset = centerOffset;
         this.infoWindowOffset = infoWindowOffset;
@@ -97,6 +99,14 @@ public class MarkerViewSettings implements Parcelable {
         dest.writeInt(animSelectRes);
         dest.writeInt(animDeselectRes);
         dest.writeInt(animExitRes);
+    }
+
+    public void setTiltValue(float tilt) {
+        tiltValue = tilt;
+    }
+
+    public float getTiltValue() {
+        return tiltValue;
     }
 
     /**
