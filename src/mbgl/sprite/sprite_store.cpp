@@ -139,7 +139,7 @@ std::shared_ptr<const SpriteImage> SpriteStore::getSprite(const std::string& nam
         return it->second;
     } else {
         if (!sprites.empty()) {
-            Log::Info(Event::Sprite, "Can't find sprite named '%s'", name.c_str());
+//            Log::Info(Event::Sprite, "Can't find sprite named '%s'", name.c_str());
         }
         return nullptr;
     }

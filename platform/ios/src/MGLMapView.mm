@@ -78,7 +78,7 @@ const double MGLMinimumZoomLevelForUserTracking = 10.5;
 /// Initial zoom level when entering user tracking mode from a low zoom level.
 const double MGLDefaultZoomLevelForUserTracking = 14.0;
 
-const NSUInteger MGLTargetFrameInterval = 1;  //Target FPS will be 60 divided by this value
+const NSUInteger MGLTargetFrameInterval = 2;  //Target FPS will be 60 divided by this value
 
 /// Tolerance for snapping to true north, measured in degrees in either direction.
 const CLLocationDirection MGLToleranceForSnappingToNorth = 7;
@@ -543,6 +543,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     _glView.drawableStencilFormat = GLKViewDrawableStencilFormat8;
     _glView.drawableDepthFormat = GLKViewDrawableDepthFormat16;
     _glView.contentScaleFactor = [UIScreen instancesRespondToSelector:@selector(nativeScale)] ? [[UIScreen mainScreen] nativeScale] : [[UIScreen mainScreen] scale];
+    ((CAEAGLLayer *)_glView.layer).presentsWithTransaction = YES;
     _glView.layer.opaque = _opaque;
     _glView.delegate = self;
     [_glView bindDrawable];
