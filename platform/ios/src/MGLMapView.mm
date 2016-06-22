@@ -3126,6 +3126,16 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     return nil;
 }
 
+- (MGLAnnotationView *)existentViewForAnnotation:(id <MGLAnnotation>)annotation {
+    for (const auto &pair : _annotationContextsByAnnotationTag) {
+        const MGLAnnotationContext &annotationContext = pair.second;
+        if (annotationContext.annotation == annotation) {
+            return annotationContext.annotationView;
+        }
+    }
+    return nil;
+}
+
 /**
     Returns the tag of the annotation at the given point in the view.
 

@@ -950,6 +950,8 @@ IB_DESIGNABLE
 
 #pragma mark Managing Annotation Selections
 
+- (MGLAnnotationView *)existentViewForAnnotation:(id <MGLAnnotation>)annotation;
+
 /**
  The currently selected annotations.
  
