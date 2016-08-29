@@ -138,7 +138,10 @@ private:
 }
 
 - (void)offlineRegionStatusDidChange:(mbgl::OfflineRegionStatus)status {
-    NSAssert(_state != MGLOfflinePackStateInvalid, @"Cannot change update progress of an invalid offline pack.");
+//    NSAssert(_state != MGLOfflinePackStateInvalid, @"Cannot change update progress of an invalid offline pack.");
+    if (_state == MGLOfflinePackStateInvalid) {
+        return;
+    }
     
     switch (status.downloadState) {
         case mbgl::OfflineRegionDownloadState::Inactive:

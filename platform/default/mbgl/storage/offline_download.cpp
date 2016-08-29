@@ -221,6 +221,7 @@ void OfflineDownload::ensureResource(const Resource& resource, std::function<voi
             status.completedResourceCount++;
             status.completedResourceSize += offlineResponse->second;
             if (resource.kind == Resource::Kind::Tile) {
+                status.completedTileCount += 1;
                 status.completedTileSize += offlineResponse->second;
             }
             
@@ -254,6 +255,7 @@ void OfflineDownload::ensureResource(const Resource& resource, std::function<voi
             uint64_t resourceSize = offlineDatabase.putRegionResource(id, resource, onlineResponse);
             status.completedResourceSize += resourceSize;
             if (resource.kind == Resource::Kind::Tile) {
+                status.completedTileCount += 1;
                 status.completedTileSize += resourceSize;
             }
 
