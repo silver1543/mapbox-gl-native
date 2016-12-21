@@ -98,7 +98,7 @@ const double MGLMinimumZoomLevelForUserTracking = 10.5;
 /// Initial zoom level when entering user tracking mode from a low zoom level.
 const double MGLDefaultZoomLevelForUserTracking = 14.0;
 
-const NSUInteger MGLTargetFrameInterval = 1;  //Target FPS will be 60 divided by this value
+const NSUInteger MGLTargetFrameInterval = 2;  //Target FPS will be 60 divided by this value
 
 /// Tolerance for snapping to true north, measured in degrees in either direction.
 const CLLocationDirection MGLToleranceForSnappingToNorth = 7;
@@ -3125,6 +3125,16 @@ public:
     }
     MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
     return annotationContext.annotationView;
+}
+
+- (MGLAnnotationView *)existentViewForAnnotation:(id <MGLAnnotation>)annotation {
+    for (const auto &pair : _annotationContextsByAnnotationTag) {
+        const MGLAnnotationContext &annotationContext = pair.second;
+        if (annotationContext.annotation == annotation) {
+            return annotationContext.annotationView;
+        }
+    }
+    return nil;
 }
 
 - (double)alphaForShapeAnnotation:(MGLShape *)annotation

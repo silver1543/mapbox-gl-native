@@ -982,6 +982,8 @@ IB_DESIGNABLE
  */
 - (nullable MGLAnnotationView *)viewForAnnotation:(id <MGLAnnotation>)annotation;
 
+- (MGLAnnotationView *)existentViewForAnnotation:(id <MGLAnnotation>)annotation;
+
 /**
  Returns a reusable annotation image object associated with its identifier.
  
