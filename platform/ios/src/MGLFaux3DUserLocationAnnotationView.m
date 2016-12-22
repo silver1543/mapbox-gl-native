@@ -225,7 +225,8 @@ const CGFloat MGLUserLocationAnnotationArrowSize = MGLUserLocationAnnotationPuck
         [self updateFrameWithSize:MGLUserLocationAnnotationDotSize];
     }
     
-    BOOL showHeadingIndicator = self.mapView.userTrackingMode == MGLUserTrackingModeFollowWithHeading;
+//    BOOL showHeadingIndicator = self.mapView.userTrackingMode == MGLUserTrackingModeFollowWithHeading;
+    BOOL showHeadingIndicator = YES;
     
     // update heading indicator
     //
