@@ -28,7 +28,7 @@ extern const CGFloat MGLMapViewDecelerationRateNormal;
 /** A fast deceleration rate for a map view. */
 extern const CGFloat MGLMapViewDecelerationRateFast;
 
-/** Disables decleration in a map view. */
+/** Disables deceleration in a map view. */
 extern const CGFloat MGLMapViewDecelerationRateImmediate;
 
 /**
@@ -73,8 +73,23 @@ typedef NS_ENUM(NSUInteger, MGLAnnotationVerticalAlignment) {
  your Mapbox account. They also deter other developers from using your styles
  without your permission.
  
+ Adding your own gesture recognizer to `MGLMapView` will block the corresponding
+ gesture recognizer built into `MGLMapView`. To avoid conflicts, define which
+ gesture takes precedence. For example, you can create your own
+ `UITapGestureRecognizer` that will be invoked only if the default `MGLMapView`
+ tap gesture fails:
+ 
+ ```swift
+ let mapTapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(myCustomFunction))
+ for recognizer in mapView.gestureRecognizers! where recognizer is UITapGestureRecognizer {
+     mapTapGestureRecognizer.require(toFail: recognizer)
+ }
+ mapView.addGestureRecognizer(mapTapGestureRecognizer)
+ ```
+ 
  @note You are responsible for getting permission to use the map data and for
  ensuring that your use adheres to the relevant terms of use.
+
  */
 IB_DESIGNABLE
 @interface MGLMapView : UIView
@@ -123,6 +138,13 @@ IB_DESIGNABLE
  Unlike the `styleURL` property, this property is set to an object that allows
  you to manipulate every aspect of the style locally.
  
+ If the style is loading, this property is set to `nil` until the style finishes
+ loading. If the style has failed to load, this property is set to `nil`.
+ Because the style loads asynchronously, you should manipulate it in the
+ `-[MGLMapViewDelegate mapView:didFinishLoadingStyle:]` or
+ `-[MGLMapViewDelegate mapViewDidFinishLoadingMap:]` method. It is not possible
+ to manipulate the style before it has finished loading.
+ 
  @note The default styles provided by Mapbox contain sources and layers with
     identifiers that will change over time. Applications that use APIs that
     manipulate a style's sources and layers must first set the style URL to an
@@ -130,7 +152,7 @@ IB_DESIGNABLE
     `+[MGLStyle outdoorsStyleURLWithVersion:]`, `MGLMapView`'s “Style URL”
     inspectable in Interface Builder, or a manually constructed `NSURL`.
  */
-@property (nonatomic, readonly) MGLStyle *style;
+@property (nonatomic, readonly, nullable) MGLStyle *style;
 
 /**
  URLs of the styles bundled with the library.

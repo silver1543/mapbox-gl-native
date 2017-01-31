@@ -231,7 +231,11 @@ public:
 - (void)awakeFromNib {
     [super awakeFromNib];
 
-    self.styleURL = nil;
+    // If the Style URL inspectable was not set, make sure to go through
+    // -setStyleURL: to load the default style.
+    if (_mbglMap->getStyleURL().empty()) {
+        self.styleURL = nil;
+    }
 }
 
 + (NSArray *)restorableStateKeyPaths {
@@ -590,6 +594,10 @@ public:
 
 #pragma mark Style
 
++ (NS_SET_OF(NSString *) *)keyPathsForValuesAffectingStyle {
+    return [NSSet setWithObject:@"styleURL"];
+}
+
 - (nonnull NSURL *)styleURL {
     NSString *styleURLString = @(_mbglMap->getStyleURL().c_str()).mgl_stringOrNilIfEmpty;
     return styleURLString ? [NSURL URLWithString:styleURLString] : [MGLStyle streetsStyleURLWithVersion:MGLStyleDefaultVersion];
@@ -611,16 +619,18 @@ public:
     }
 
     styleURL = styleURL.mgl_URLByStandardizingScheme;
-    [self willChangeValueForKey:@"style"];
-    _style = [[MGLStyle alloc] initWithMapView:self];
+    self.style = nil;
     _mbglMap->setStyleURL(styleURL.absoluteString.UTF8String);
-    [self didChangeValueForKey:@"style"];
 }
 
 - (IBAction)reloadStyle:(__unused id)sender {
     NSURL *styleURL = self.styleURL;
     _mbglMap->setStyleURL("");
     self.styleURL = styleURL;
+}
+
+- (mbgl::Map *)mbglMap {
+    return _mbglMap;
 }
 
 #pragma mark View hierarchy and drawing
@@ -916,11 +926,7 @@ public:
         }
         case mbgl::MapChangeDidFinishLoadingStyle:
         {
-            [self.style willChangeValueForKey:@"name"];
-            [self.style willChangeValueForKey:@"sources"];
-            [self.style didChangeValueForKey:@"sources"];
-            [self.style willChangeValueForKey:@"layers"];
-            [self.style didChangeValueForKey:@"layers"];
+            self.style = [[MGLStyle alloc] initWithMapView:self];
             if ([self.delegate respondsToSelector:@selector(mapView:didFinishLoadingStyle:)])
             {
                 [self.delegate mapView:self didFinishLoadingStyle:self.style];
@@ -1243,7 +1249,7 @@ public:
 - (MGLMapCamera *)cameraForCameraOptions:(const mbgl::CameraOptions &)cameraOptions {
     CLLocationCoordinate2D centerCoordinate = MGLLocationCoordinate2DFromLatLng(cameraOptions.center ? *cameraOptions.center : _mbglMap->getLatLng());
     double zoomLevel = cameraOptions.zoom ? *cameraOptions.zoom : self.zoomLevel;
-    CLLocationDirection direction = cameraOptions.angle ? -MGLDegreesFromRadians(*cameraOptions.angle) : self.direction;
+    CLLocationDirection direction = cameraOptions.angle ? mbgl::util::wrap(-MGLDegreesFromRadians(*cameraOptions.angle), 0., 360.) : self.direction;
     CGFloat pitch = cameraOptions.pitch ? MGLDegreesFromRadians(*cameraOptions.pitch) : _mbglMap->getPitch();
     CLLocationDistance altitude = MGLAltitudeForZoomLevel(zoomLevel, pitch,
                                                           centerCoordinate.latitude,
@@ -1333,7 +1339,7 @@ public:
             // the illusion that it has stayed in place during the entire gesture.
             CGPoint cursorPoint = [self convertPoint:startPoint toView:nil];
             cursorPoint = [self.window convertRectToScreen:{ startPoint, NSZeroSize }].origin;
-            cursorPoint.y = [NSScreen mainScreen].frame.size.height - cursorPoint.y;
+            cursorPoint.y = self.window.screen.frame.size.height - cursorPoint.y;
             CGDisplayMoveCursorToPoint(kCGDirectMainDisplay, cursorPoint);
             CGDisplayShowCursor(kCGDirectMainDisplay);
         }
@@ -1818,7 +1824,7 @@ public:
             }
 
             // Opt into potentially expensive tooltip tracking areas.
-            if (annotation.toolTip.length) {
+            if ([annotation respondsToSelector:@selector(toolTip)] && annotation.toolTip.length) {
                 _wantsToolTipRects = YES;
             }
         }
@@ -2268,28 +2274,11 @@ public:
     }
 }
 
-#pragma mark - Runtime styling
-
-- (mbgl::Map *)mbglMap
-{
-    return _mbglMap;
-}
-
 #pragma mark MGLMultiPointDelegate methods
 
 - (double)alphaForShapeAnnotation:(MGLShape *)annotation {
-    // The explicit -mapView:alphaForShapeAnnotation: delegate method is deprecated
-    // but still used, if implemented. When not implemented, call the stroke or
-    // fill color delegate methods and pull the alpha from the returned color.
     if (_delegateHasAlphasForShapeAnnotations) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         return [self.delegate mapView:self alphaForShapeAnnotation:annotation];
-#pragma clang diagnostic pop
-    } else if ([annotation isKindOfClass:[MGLPolygon class]]) {
-        return [self fillColorForPolygonAnnotation:(MGLPolygon *)annotation].a ?: 1.0;
-    } else if ([annotation isKindOfClass:[MGLShape class]]) {
-        return [self strokeColorForShapeAnnotation:annotation].a ?: 1.0;
     }
     return 1.0;
 }
@@ -2370,7 +2359,7 @@ public:
         for (MGLAnnotationTag annotationTag : annotationTags) {
             MGLAnnotationImage *annotationImage = [self imageOfAnnotationWithTag:annotationTag];
             id <MGLAnnotation> annotation = [self annotationWithTag:annotationTag];
-            if (annotation.toolTip.length) {
+            if ([annotation respondsToSelector:@selector(toolTip)] && annotation.toolTip.length) {
                 // Add a tooltip tracking area over the annotation image’s
                 // frame, accounting for the image’s alignment rect.
                 NSImage *image = annotationImage.image;
@@ -2486,7 +2475,7 @@ public:
     if (menuItem.action == @selector(giveFeedback:)) {
         return YES;
     }
-    return [super validateMenuItem:menuItem];
+    return NO;
 }
 
 #pragma mark Interface Builder methods

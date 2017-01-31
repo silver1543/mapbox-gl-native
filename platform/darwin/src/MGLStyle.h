@@ -30,14 +30,24 @@ NS_ASSUME_NONNULL_BEGIN
 static const NSInteger MGLStyleDefaultVersion = 9;
 
 /**
- The proxy object for the current map style for customization purposes and a
- set of convenience methods for creating style URLs of default styles provided
- by Mapbox.
+ The proxy object for the current map style.
+ 
+ MGLStyle provides a set of convenience methods for changing Mapbox
+ default styles using `-[MGLMapView styleURL]`.
  <a href="https://www.mapbox.com/maps/">Learn more about Mapbox default styles</a>.
+ 
+ It is also possible to directly manipulate the current map style 
+ via `-[MGLMapView style]` by updating the style's data sources or layers.
+ 
+ @note Wait until the map style has finished loading before modifying a map's
+    style via any of the `MGLStyle` instance methods below. You can use the 
+    `-[MGLMapViewDelegate mapView:didFinishLoadingStyle:]` or
+    `-[MGLMapViewDelegate mapViewDidFinishLoadingMap:]` methods as indicators
+    that it's safe to modify the map's style.
  */
 @interface MGLStyle : NSObject
 
-#pragma mark Accessing Common Styles
+#pragma mark Accessing Default Styles
 
 /**
  Returns the URL to version 8 of the
@@ -179,7 +189,7 @@ static const NSInteger MGLStyleDefaultVersion = 9;
 /**
  A set containing the style’s sources.
  */
-@property (nonatomic, strong) NS_MUTABLE_SET_OF(MGLSource *) *sources;
+@property (nonatomic, strong) NS_SET_OF(__kindof MGLSource *) *sources;
 
 /**
  Returns a source with the given identifier in the current style.
@@ -199,12 +209,17 @@ static const NSInteger MGLStyleDefaultVersion = 9;
 
 /**
  Adds a new source to the current style.
-
- @note Adding the same source instance more than once will result in a 
+ 
+ @note Adding the same source instance more than once will result in a
     `MGLRedundantSourceException`. Reusing the same source identifier, even with
     different source instances, will result in a 
-    `MGLRedundantSourceIdentifierException`.
+    `MGLRedundantSourceIdentifierException`. 
  
+ @note Sources should be added in 
+    `-[MGLMapViewDelegate mapView:didFinishLoadingStyle:]` or
+    `-[MGLMapViewDelegate mapViewDidFinishLoadingMap:]` to ensure that the map 
+    has loaded the style and is ready to accept a new source.
+
  @param source The source to add to the current style.
  */
 - (void)addSource:(MGLSource *)source;
@@ -227,10 +242,10 @@ static const NSInteger MGLStyleDefaultVersion = 9;
 #pragma mark Managing Style Layers
 
 /**
- The layers included in the style, arranged according to their front-to-back
+ The layers included in the style, arranged according to their back-to-front
  ordering on the screen.
  */
-@property (nonatomic, strong) NS_MUTABLE_ARRAY_OF(MGLStyleLayer *) *layers;
+@property (nonatomic, strong) NS_ARRAY_OF(__kindof MGLStyleLayer *) *layers;
 
 /**
  Returns a style layer with the given identifier in the current style.
@@ -251,10 +266,15 @@ static const NSInteger MGLStyleDefaultVersion = 9;
 
 /**
  Adds a new layer on top of existing layers.
-
+ 
  @note Adding the same layer instance more than once will result in a
     `MGLRedundantLayerException`. Reusing the same layer identifer, even with
-    different layer instances, will also result in an exception.
+    different layer instances, will also result in an exception. 
+ 
+ @note Layers should be added in 
+    `-[MGLMapViewDelegate mapView:didFinishLoadingStyle:]` or
+    `-[MGLMapViewDelegate mapViewDidFinishLoadingMap:]` to ensure that the map 
+    has loaded the style and is ready to accept a new layer.
 
  @param layer The layer object to add to the map view. This object must be an
     instance of a concrete subclass of `MGLStyleLayer`.
@@ -266,7 +286,12 @@ static const NSInteger MGLStyleDefaultVersion = 9;
  
  @note Adding the same layer instance more than once will result in a
     `MGLRedundantLayerException`. Reusing the same layer identifer, even with
-    different layer instances, will also result in an exception.
+    different layer instances, will also result in an exception. 
+ 
+ @note Layers should be added in
+    `-[MGLMapViewDelegate mapView:didFinishLoadingStyle:]` or
+    `-[MGLMapViewDelegate mapViewDidFinishLoadingMap:]` to ensure that the map 
+    has loaded the style and is ready to accept a new layer.
 
  @param layer The layer to insert.
  @param index The index at which to insert the layer. An index of 0 would send
@@ -336,7 +361,7 @@ static const NSInteger MGLStyleDefaultVersion = 9;
 /**
  Currently active style classes, represented as an array of string identifiers.
  */
-@property (nonatomic) NS_ARRAY_OF(NSString *) *styleClasses;
+@property (nonatomic) NS_ARRAY_OF(NSString *) *styleClasses __attribute__((deprecated("This property will be removed in a future release.")));
 
 /**
  Returns a Boolean value indicating whether the style class with the given
@@ -345,14 +370,14 @@ static const NSInteger MGLStyleDefaultVersion = 9;
  @param styleClass The style class to query for.
  @return Whether the style class is currently active.
  */
-- (BOOL)hasStyleClass:(NSString *)styleClass;
+- (BOOL)hasStyleClass:(NSString *)styleClass __attribute__((deprecated("This method will be removed in a future release.")));
 
 /**
  Activates the style class with the given identifier.
 
  @param styleClass The style class to activate.
  */
-- (void)addStyleClass:(NSString *)styleClass;
+- (void)addStyleClass:(NSString *)styleClass __attribute__((deprecated("This method will be removed in a future release.")));
 
 /**
  Deactivates the style class with the given identifier.
@@ -367,7 +392,7 @@ static const NSInteger MGLStyleDefaultVersion = 9;
 
  @param styleClass The style class to deactivate.
  */
-- (void)removeStyleClass:(NSString *)styleClass;
+- (void)removeStyleClass:(NSString *)styleClass __attribute__((deprecated("This method will be removed in a future release.")));
 
 #pragma mark Managing a Style’s Images
 
