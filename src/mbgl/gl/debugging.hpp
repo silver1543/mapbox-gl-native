@@ -1,15 +1,8 @@
-#ifndef MBGL_GL_DEBUG_MESSAGES
-#define MBGL_GL_DEBUG_MESSAGES
+#pragma once
+
+#ifndef NDEBUG
 
 #include <string>
-
-#if defined(DEBUG)
-#define __MBGL_DEBUG_GROUP_NAME2(counter) __MBGL_DEBUG_GROUP_##counter
-#define __MBGL_DEBUG_GROUP_NAME(counter) __MBGL_DEBUG_GROUP_NAME2(counter)
-#define MBGL_DEBUG_GROUP(string) ::mbgl::gl::debugging::group __MBGL_DEBUG_GROUP_NAME(__LINE__)(string);
-#else
-#define MBGL_DEBUG_GROUP(string)
-#endif
 
 namespace mbgl {
 namespace gl {
@@ -25,5 +18,13 @@ struct group {
 } // namespace debugging
 } // namespace gl
 } // namespace mbgl
+
+#define __MBGL_DEBUG_GROUP_NAME2(counter) __MBGL_DEBUG_GROUP_##counter
+#define __MBGL_DEBUG_GROUP_NAME(counter) __MBGL_DEBUG_GROUP_NAME2(counter)
+#define MBGL_DEBUG_GROUP(string) ::mbgl::gl::debugging::group __MBGL_DEBUG_GROUP_NAME(__LINE__)(string);
+
+#else // ifndef NDEBUG
+
+#define MBGL_DEBUG_GROUP(string)
 
 #endif

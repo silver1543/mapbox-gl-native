@@ -1,5 +1,4 @@
-#ifndef MBGL_TEST_UTIL
-#define MBGL_TEST_UTIL
+#pragma once
 
 #ifdef __APPLE__
 #include <TargetConditionals.h>
@@ -37,6 +36,12 @@
 #define TEST_REQUIRES_SERVER(name) DISABLED_ ## name
 #endif
 
+#if !CI_BUILD
+#define TEST_DISABLED_ON_CI(name) name
+#else
+#define TEST_DISABLED_ON_CI(name) DISABLED_ ## name
+#endif
+
 #include <mbgl/util/image.hpp>
 #include <mbgl/util/chrono.hpp>
 
@@ -44,37 +49,28 @@
 
 #include <gtest/gtest.h>
 
-#define SCOPED_TEST(name) \
-    static class name { \
-        bool completed = false; \
-    public: \
-        void finish() { EXPECT_FALSE(completed) << #name " was already completed."; completed = true; } \
-        ~name() { if (!completed) ADD_FAILURE() << #name " didn't complete."; } \
-    } name;
-
 namespace mbgl {
 
 class Map;
+class OffscreenView;
 
 namespace test {
 
 class Server {
 public:
-    Server(const char* executable);
+    Server(const char* script);
     ~Server();
 
 private:
     int fd = -1;
 };
 
-PremultipliedImage render(Map&);
+PremultipliedImage render(Map&, OffscreenView&);
 
 void checkImage(const std::string& base,
                 const PremultipliedImage& actual,
                 double imageThreshold = 0,
                 double pixelThreshold = 0);
 
-}
-}
-
-#endif
+} // namespace test
+} // namespace mbgl

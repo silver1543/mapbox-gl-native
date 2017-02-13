@@ -1,5 +1,4 @@
-#ifndef MBGL_UTIL_THREAD_CONTEXT
-#define MBGL_UTIL_THREAD_CONTEXT
+#pragma once
 
 #include <string>
 
@@ -13,7 +12,7 @@ enum class ThreadPriority : bool {
 
 struct ThreadContext {
 public:
-    ThreadContext(const std::string& name, ThreadPriority priority = ThreadPriority::Regular);
+    ThreadContext(std::string name, ThreadPriority priority = ThreadPriority::Regular);
 
     std::string name;
     ThreadPriority priority;
@@ -21,5 +20,3 @@ public:
 
 } // namespace util
 } // namespace mbgl
-
-#endif

@@ -1,14 +1,16 @@
 #import "MGLAPIClient.h"
 #import "NSBundle+MGLAdditions.h"
+#import "NSData+MGLAdditions.h"
 #import "MGLAccountManager.h"
 
 static NSString * const MGLAPIClientUserAgentBase = @"MapboxEventsiOS";
-static NSString * const MGLAPIClientBaseURL = @"https://api.mapbox.com";
+static NSString * const MGLAPIClientBaseURL = @"https://events.mapbox.com";
 static NSString * const MGLAPIClientEventsPath = @"events/v2";
 
 static NSString * const MGLAPIClientHeaderFieldUserAgentKey = @"User-Agent";
 static NSString * const MGLAPIClientHeaderFieldContentTypeKey = @"Content-Type";
 static NSString * const MGLAPIClientHeaderFieldContentTypeValue = @"application/json";
+static NSString * const MGLAPIClientHeaderFieldContentEncodingKey = @"Content-Encoding";
 static NSString * const MGLAPIClientHTTPMethodPost = @"POST";
 
 @interface MGLAPIClient ()
@@ -19,7 +21,6 @@ static NSString * const MGLAPIClientHTTPMethodPost = @"POST";
 @property (nonatomic, copy) NSData *geoTrustCert;
 @property (nonatomic, copy) NSData *testServerCert;
 @property (nonatomic, copy) NSString *userAgent;
-@property (nonatomic) NSMutableArray *dataTasks;
 @property (nonatomic) BOOL usesTestServer;
 
 @end
@@ -31,7 +32,6 @@ static NSString * const MGLAPIClientHTTPMethodPost = @"POST";
     if (self) {
         _session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]
                                                  delegate:self delegateQueue:nil];
-        _dataTasks = [NSMutableArray array];
         [self loadCertificates];
         [self setupBaseURL];
         [self setupUserAgent];
@@ -57,20 +57,13 @@ static NSString * const MGLAPIClientHTTPMethodPost = @"POST";
             error = error ?: statusError;
             completionHandler(error);
         }
-        [self.dataTasks removeObject:dataTask];
         dataTask = nil;
     }];
     [dataTask resume];
-    [self.dataTasks addObject:dataTask];
 }
 
 - (void)postEvent:(nonnull MGLMapboxEventAttributes *)event completionHandler:(nullable void (^)(NSError * _Nullable error))completionHandler {
     [self postEvents:@[event] completionHandler:completionHandler];
-}
-
-- (void)cancelAll {
-    [self.dataTasks makeObjectsPerformSelector:@selector(cancel)];
-    [self.dataTasks removeAllObjects];
 }
 
 #pragma mark Utilities
@@ -82,8 +75,22 @@ static NSString * const MGLAPIClientHTTPMethodPost = @"POST";
     [request setValue:self.userAgent forHTTPHeaderField:MGLAPIClientHeaderFieldUserAgentKey];
     [request setValue:MGLAPIClientHeaderFieldContentTypeValue forHTTPHeaderField:MGLAPIClientHeaderFieldContentTypeKey];
     [request setHTTPMethod:MGLAPIClientHTTPMethodPost];
+    
     NSData *jsonData = [self serializedDataForEvents:events];
-    [request setHTTPBody:jsonData];
+    
+    // Compressing less than 3 events can have a negative impact on the size.
+    if (events.count > 2) {
+        NSData *compressedData = [jsonData mgl_compressedData];
+        [request setValue:@"deflate" forHTTPHeaderField:MGLAPIClientHeaderFieldContentEncodingKey];
+        [request setHTTPBody:compressedData];
+    }
+    
+    // Set JSON data if events.count were less than 3 or something went wrong with compressing HTTP body data.
+    if (!request.HTTPBody) {
+        [request setValue:nil forHTTPHeaderField:MGLAPIClientHeaderFieldContentEncodingKey];
+        [request setHTTPBody:jsonData];
+    }
+    
     return [request copy];
 }
 
@@ -104,7 +111,7 @@ static NSString * const MGLAPIClientHTTPMethodPost = @"POST";
     self.geoTrustCert = certificate;
     [self loadCertificate:&certificate withResource:@"api_mapbox_com-digicert"];
     self.digicertCert = certificate;
-    [self loadCertificate:&certificate withResource:@"star_tilestream_net"];
+    [self loadCertificate:&certificate withResource:@"api_mapbox_staging"];
     self.testServerCert = certificate;
 }
 

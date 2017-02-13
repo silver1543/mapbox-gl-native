@@ -1,137 +1,191 @@
 #import "MGLMultiPoint_Private.h"
 #import "MGLGeometry_Private.h"
-
-#import <mbgl/util/geo.hpp>
-
-mbgl::Color MGLColorObjectFromCGColorRef(CGColorRef cgColor) {
-    if (!cgColor) {
-        return {{ 0, 0, 0, 0 }};
-    }
-    NSCAssert(CGColorGetNumberOfComponents(cgColor) >= 4, @"Color must have at least 4 components");
-    const CGFloat *components = CGColorGetComponents(cgColor);
-    return {{ (float)components[0], (float)components[1], (float)components[2], (float)components[3] }};
-}
+#import "MGLShape_Private.h"
+#import "NSCoder+MGLAdditions.h"
+#import "MGLTypes.h"
 
 @implementation MGLMultiPoint
 {
-    CLLocationCoordinate2D *_coords;
-    size_t _count;
-    MGLCoordinateBounds _bounds;
+    mbgl::optional<mbgl::LatLngBounds> _bounds;
+    std::vector<CLLocationCoordinate2D> _coordinates;
 }
 
-- (instancetype)initWithCoordinates:(CLLocationCoordinate2D *)coords
-                              count:(NSUInteger)count
+- (instancetype)initWithCoordinates:(const CLLocationCoordinate2D *)coords count:(NSUInteger)count
 {
     self = [super init];
 
     if (self)
     {
-        _count = count;
-        _coords = (CLLocationCoordinate2D *)malloc(_count * sizeof(CLLocationCoordinate2D));
-
-        mbgl::LatLngBounds bounds = mbgl::LatLngBounds::empty();
-
-        for (NSUInteger i = 0; i < _count; i++)
-        {
-            _coords[i] = coords[i];
-            bounds.extend(mbgl::LatLng(coords[i].latitude, coords[i].longitude));
+        if (!count) {
+            [NSException raise:NSInvalidArgumentException
+                        format:@"A multipoint must have at least one vertex."];
         }
-
-        _bounds = MGLCoordinateBoundsFromLatLngBounds(bounds);
+        _coordinates = { coords, coords + count };
     }
 
     return self;
 }
 
-- (void)dealloc
+- (instancetype)initWithCoder:(NSCoder *)decoder
 {
-    free(_coords);
+    if (self = [super initWithCoder:decoder]) {
+        _coordinates = [decoder mgl_decodeLocationCoordinates2DForKey:@"coordinates"];
+    }
+    return self;
+}
+
+- (void)encodeWithCoder:(NSCoder *)coder
+{
+    [super encodeWithCoder:coder];
+    [coder mgl_encodeLocationCoordinates2D:_coordinates forKey:@"coordinates"];
+}
+
+- (BOOL)isEqual:(id)other
+{
+    if (self == other) return YES;
+    if (![other isKindOfClass:[MGLMultiPoint class]]) return NO;
+           
+    MGLMultiPoint *otherMultipoint = other;
+    return ([super isEqual:otherMultipoint]
+            && _coordinates == otherMultipoint->_coordinates);
+}
+
+- (NSUInteger)hash
+{
+    NSUInteger hash = [super hash];
+    for (auto coord : _coordinates) {
+        hash += @(coord.latitude+coord.longitude).hash;
+    }
+    return hash;
 }
 
 - (CLLocationCoordinate2D)coordinate
 {
-    if ([self isMemberOfClass:[MGLMultiPoint class]])
-    {
-        [[NSException exceptionWithName:@"MGLAbstractClassException"
-                                 reason:@"MGLMultiPoint is an abstract class"
-                               userInfo:nil] raise];
-    }
-
-    assert(_count > 0);
-
-    return CLLocationCoordinate2DMake(_coords[0].latitude, _coords[0].longitude);
+    NSAssert([self pointCount] > 0, @"A multipoint must have coordinates");
+    return _coordinates.at(0);
 }
 
 - (NSUInteger)pointCount
 {
-    if ([self isMemberOfClass:[MGLMultiPoint class]])
-    {
-        [[NSException exceptionWithName:@"MGLAbstractClassException"
-                                 reason:@"MGLMultiPoint is an abstract class"
-                               userInfo:nil] raise];
-    }
+    return _coordinates.size();
+}
 
-    return _count;
++ (NS_SET_OF(NSString *) *)keyPathsForValuesAffectingPointCount
+{
+    return [NSSet setWithObjects:@"coordinates", nil];
+}
+
+- (CLLocationCoordinate2D *)coordinates
+{
+    return _coordinates.data();
 }
 
 - (void)getCoordinates:(CLLocationCoordinate2D *)coords range:(NSRange)range
 {
-    if ([self isMemberOfClass:[MGLMultiPoint class]])
+    if (range.location + range.length > [self pointCount])
     {
-        [[NSException exceptionWithName:@"MGLAbstractClassException"
-                                 reason:@"MGLMultiPoint is an abstract class"
-                               userInfo:nil] raise];
+        [NSException raise:NSRangeException
+                    format:@"Invalid coordinate range %@ extends beyond current coordinate count of %ld",
+                        NSStringFromRange(range), (unsigned long)[self pointCount]];
     }
 
-    assert(range.location + range.length <= _count);
+    std::copy(_coordinates.begin() + range.location, _coordinates.begin() + NSMaxRange(range), coords);
+}
 
-    NSUInteger index = 0;
-
-    for (NSUInteger i = range.location; i < range.location + range.length; i++)
-    {
-        coords[index] = _coords[i];
-        index++;
+- (void)setCoordinates:(CLLocationCoordinate2D *)coords count:(NSUInteger)count {
+    if (!count) {
+        [NSException raise:NSInvalidArgumentException
+                    format:@"A multipoint must have at least one vertex."];
     }
+    
+    [self willChangeValueForKey:@"coordinates"];
+    _coordinates = { coords, coords + count };
+    _bounds = {};
+    [self didChangeValueForKey:@"coordinates"];
+}
+
+- (void)insertCoordinates:(const CLLocationCoordinate2D *)coords count:(NSUInteger)count atIndex:(NSUInteger)index {
+    if (!count) {
+        return;
+    }
+    
+    if (index > _coordinates.size()) {
+        [NSException raise:NSRangeException
+                    format:@"Invalid index %lu for existing coordinate count %ld",
+         (unsigned long)index, (unsigned long)[self pointCount]];
+    }
+    
+    [self willChangeValueForKey:@"coordinates"];
+    _coordinates.insert(_coordinates.begin() + index, count, *coords);
+    _bounds = {};
+    [self didChangeValueForKey:@"coordinates"];
+}
+
+- (void)appendCoordinates:(const CLLocationCoordinate2D *)coords count:(NSUInteger)count
+{
+    [self insertCoordinates:coords count:count atIndex:_coordinates.size()];
+}
+
+- (void)replaceCoordinatesInRange:(NSRange)range withCoordinates:(const CLLocationCoordinate2D *)coords
+{
+    [self replaceCoordinatesInRange:range withCoordinates:coords count:range.length];
+}
+
+- (void)replaceCoordinatesInRange:(NSRange)range withCoordinates:(const CLLocationCoordinate2D *)coords count:(NSUInteger)count {
+    if (!count && !range.length) {
+        return;
+    }
+    
+    if (NSMaxRange(range) > _coordinates.size()) {
+        [NSException raise:NSRangeException
+                    format:@"Invalid range %@ for existing coordinate count %ld",
+         NSStringFromRange(range), (unsigned long)[self pointCount]];
+    }
+
+    [self willChangeValueForKey:@"coordinates"];
+    std::copy(coords, coords + MIN(count, range.length), _coordinates.begin() + range.location);
+    if (count >= range.length) {
+        _coordinates.insert(_coordinates.begin() + NSMaxRange(range), coords, coords + count - range.length);
+    } else {
+        _coordinates.erase(_coordinates.begin() + range.location + count, _coordinates.begin() + NSMaxRange(range));
+    }
+    _bounds = {};
+    [self didChangeValueForKey:@"coordinates"];
+}
+
+- (void)removeCoordinatesInRange:(NSRange)range {
+    CLLocationCoordinate2D coords;
+    [self replaceCoordinatesInRange:range withCoordinates:&coords count:0];
 }
 
 - (MGLCoordinateBounds)overlayBounds
 {
-    return _bounds;
+    if (!_bounds) {
+        mbgl::LatLngBounds bounds = mbgl::LatLngBounds::empty();
+        for (auto coordinate : _coordinates) {
+            bounds.extend(mbgl::LatLng(coordinate.latitude, coordinate.longitude));
+        }
+        _bounds = bounds;
+    }
+    return MGLCoordinateBoundsFromLatLngBounds(*_bounds);
 }
 
 - (BOOL)intersectsOverlayBounds:(MGLCoordinateBounds)overlayBounds
 {
-    return MGLLatLngBoundsFromCoordinateBounds(_bounds).intersects(MGLLatLngBoundsFromCoordinateBounds(overlayBounds));
+    return MGLCoordinateBoundsIntersectsCoordinateBounds(self.overlayBounds, overlayBounds);
 }
 
-- (void)addShapeAnnotationObjectToCollection:(std::vector<mbgl::ShapeAnnotation> &)shapes withDelegate:(id <MGLMultiPointDelegate>)delegate {
-    NSUInteger count = self.pointCount;
-    if (count == 0) {
-        return;
-    }
-    
-    CLLocationCoordinate2D *coordinates = (CLLocationCoordinate2D *)malloc(count * sizeof(CLLocationCoordinate2D));
-    NSAssert(coordinates, @"Unable to allocate annotation with %lu points", (unsigned long)count);
-    [self getCoordinates:coordinates range:NSMakeRange(0, count)];
-    
-    mbgl::AnnotationSegment segment;
-    segment.reserve(count);
-    for (NSUInteger i = 0; i < count; i++) {
-        segment.push_back(MGLLatLngFromLocationCoordinate2D(coordinates[i]));
-    }
-    free(coordinates);
-    shapes.emplace_back(mbgl::AnnotationSegments {{ segment }},
-                        [self shapeAnnotationPropertiesObjectWithDelegate:delegate]);
-}
-
-- (mbgl::ShapeAnnotation::Properties)shapeAnnotationPropertiesObjectWithDelegate:(__unused id <MGLMultiPointDelegate>)delegate {
-    return mbgl::ShapeAnnotation::Properties();
+- (mbgl::Annotation)annotationObjectWithDelegate:(__unused id <MGLMultiPointDelegate>)delegate
+{
+    NSAssert(NO, @"Cannot add an annotation from an instance of %@", NSStringFromClass([self class]));
+    return mbgl::SymbolAnnotation({mbgl::Point<double>()});
 }
 
 - (NSString *)description
 {
     return [NSString stringWithFormat:@"<%@: %p; count = %lu; bounds = %@>",
-            NSStringFromClass([self class]), (void *)self, (unsigned long)_count, MGLStringFromCoordinateBounds(_bounds)];
+            NSStringFromClass([self class]), (void *)self, (unsigned long)[self pointCount],
+            MGLStringFromCoordinateBounds(self.overlayBounds)];
 }
 
 @end

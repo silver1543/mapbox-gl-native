@@ -1,9 +1,7 @@
-#ifndef MBGL_TEXT_GLYPH_PBF
-#define MBGL_TEXT_GLYPH_PBF
+#pragma once
 
 #include <mbgl/text/glyph.hpp>
-#include <mbgl/text/glyph_store.hpp>
-#include <mbgl/style/types.hpp>
+#include <mbgl/util/font_stack.hpp>
 #include <mbgl/util/noncopyable.hpp>
 
 #include <atomic>
@@ -13,15 +11,17 @@
 
 namespace mbgl {
 
+class GlyphAtlas;
+class GlyphAtlasObserver;
 class AsyncRequest;
 class FileSource;
 
 class GlyphPBF : private util::noncopyable {
 public:
-    GlyphPBF(GlyphStore*,
+    GlyphPBF(GlyphAtlas*,
              const FontStack&,
              const GlyphRange&,
-             GlyphStore::Observer*,
+             GlyphAtlasObserver*,
              FileSource&);
     ~GlyphPBF();
 
@@ -32,9 +32,7 @@ public:
 private:
     std::atomic<bool> parsed;
     std::unique_ptr<AsyncRequest> req;
-    GlyphStore::Observer* observer = nullptr;
+    GlyphAtlasObserver* observer = nullptr;
 };
 
 } // namespace mbgl
-
-#endif

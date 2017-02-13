@@ -1,48 +1,57 @@
 #include <mbgl/renderer/painter.hpp>
+#include <mbgl/renderer/paint_parameters.hpp>
 #include <mbgl/renderer/circle_bucket.hpp>
+#include <mbgl/renderer/render_tile.hpp>
 
-#include <mbgl/layer/circle_layer.hpp>
+#include <mbgl/style/layers/circle_layer.hpp>
+#include <mbgl/style/layers/circle_layer_impl.hpp>
 
-#include <mbgl/shader/circle_shader.hpp>
+#include <mbgl/shader/shaders.hpp>
 
-using namespace mbgl;
+namespace mbgl {
 
-void Painter::renderCircle(CircleBucket& bucket,
+using namespace style;
+
+void Painter::renderCircle(PaintParameters& parameters,
+                           CircleBucket& bucket,
                            const CircleLayer& layer,
-                           const UnwrappedTileID& tileID,
-                           const mat4& matrix) {
+                           const RenderTile& tile) {
     // Abort early.
     if (pass == RenderPass::Opaque) return;
 
-    config.stencilTest = frame.mapMode == MapMode::Still ? GL_TRUE : GL_FALSE;
-    config.depthFunc.reset();
-    config.depthTest = GL_TRUE;
-    config.depthMask = GL_FALSE;
+    context.stencilTest = frame.mapMode == MapMode::Still;
+    context.depthFunc = gl::DepthTestFunction::LessEqual;
+    context.depthTest = true;
+    context.depthMask = false;
     setDepthSublayer(0);
 
-    const CirclePaintProperties& properties = layer.paint;
-    mat4 vtxMatrix = translatedMatrix(matrix, properties.circleTranslate, tileID,
-                                      properties.circleTranslateAnchor);
+    const CirclePaintProperties& properties = layer.impl->paint;
+    auto& circleShader = parameters.shaders.circle;
 
-    Color color = properties.circleColor;
-    color[0] *= properties.circleOpacity;
-    color[1] *= properties.circleOpacity;
-    color[2] *= properties.circleOpacity;
-    color[3] *= properties.circleOpacity;
+    context.program = circleShader.getID();
 
-    // Antialiasing factor: this is a minimum blur distance that serves as
-    // a faux-antialiasing for the circle. since blur is a ratio of the circle's
-    // size and the intent is to keep the blur at roughly 1px, the two
-    // are inversely related.
-    float antialiasing = 1 / frame.pixelRatio / properties.circleRadius;
+    circleShader.u_matrix = tile.translatedMatrix(properties.circleTranslate,
+                                                  properties.circleTranslateAnchor,
+                                                  state);
 
-    config.program = circleShader->getID();
+    if (properties.circlePitchScale == CirclePitchScaleType::Map) {
+        circleShader.u_extrude_scale = {{
+            pixelsToGLUnits[0] * state.getAltitude(),
+            pixelsToGLUnits[1] * state.getAltitude()
+        }};
+        circleShader.u_scale_with_map = true;
+    } else {
+        circleShader.u_extrude_scale = pixelsToGLUnits;
+        circleShader.u_scale_with_map = false;
+    }
 
-    circleShader->u_matrix = vtxMatrix;
-    circleShader->u_exmatrix = extrudeMatrix;
-    circleShader->u_color = color;
-    circleShader->u_blur = std::max<float>(properties.circleBlur, antialiasing);
-    circleShader->u_size = properties.circleRadius;
+    circleShader.u_devicepixelratio = frame.pixelRatio;
+    circleShader.u_color = properties.circleColor;
+    circleShader.u_radius = properties.circleRadius;
+    circleShader.u_blur = properties.circleBlur;
+    circleShader.u_opacity = properties.circleOpacity;
 
-    bucket.drawCircles(*circleShader, glObjectStore);
+    bucket.drawCircles(circleShader, context, paintMode());
 }
+
+} // namespace mbgl

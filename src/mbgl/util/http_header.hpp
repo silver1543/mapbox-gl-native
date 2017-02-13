@@ -1,5 +1,4 @@
-#ifndef MBGL_UTIL_HTTP_HEADER
-#define MBGL_UTIL_HTTP_HEADER
+#pragma once
 
 #include <mbgl/util/optional.hpp>
 #include <mbgl/util/chrono.hpp>
@@ -18,8 +17,9 @@ public:
 
     optional<Timestamp> toTimePoint() const;
 };
+    
+optional<Timestamp> parseRetryHeaders(const optional<std::string>& retryAfter,
+                                      const optional<std::string>& xRateLimitReset);
 
 } // namespace http
 } // namespace mbgl
-
-#endif

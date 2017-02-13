@@ -1,5 +1,4 @@
-#ifndef TEST_RESOURCES_STUB_FILE_SOURCE
-#define TEST_RESOURCES_STUB_FILE_SOURCE
+#pragma once
 
 #include <mbgl/storage/file_source.hpp>
 #include <mbgl/util/timer.hpp>
@@ -14,6 +13,7 @@ public:
     ~StubFileSource() override;
 
     std::unique_ptr<AsyncRequest> request(const Resource&, Callback) override;
+    void remove(AsyncRequest*);
 
     using ResponseFunction = std::function<optional<Response> (const Resource&)>;
 
@@ -31,8 +31,6 @@ public:
     ResponseFunction spriteImageResponse;
 
 private:
-    friend class StubFileRequest;
-
     // The default behavior is to throw if no per-kind callback has been set.
     optional<Response> defaultResponse(const Resource&);
 
@@ -40,6 +38,4 @@ private:
     util::Timer timer;
 };
 
-}
-
-#endif
+} // namespace mbgl

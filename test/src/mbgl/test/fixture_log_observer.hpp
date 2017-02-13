@@ -1,5 +1,4 @@
-#ifndef MBGL_TEST_FIXTURE_LOG_OBSERVER
-#define MBGL_TEST_FIXTURE_LOG_OBSERVER
+#pragma once
 
 #include <mbgl/platform/log.hpp>
 
@@ -13,7 +12,7 @@ namespace mbgl {
 class FixtureLog {
 public:
     struct Message {
-        Message(EventSeverity severity_, Event event_, int64_t code_, const std::string &msg_);
+        Message(EventSeverity severity_, Event event_, int64_t code_, std::string msg_);
         Message();
 
         bool operator==(const Message& rhs) const;
@@ -31,10 +30,10 @@ public:
         using LogMessage = Message;
 
         Observer(FixtureLog* log = nullptr);
-        ~Observer();
+        ~Observer() override;
 
         // Log::Observer implementation
-        virtual bool onRecord(EventSeverity severity,
+        bool onRecord(EventSeverity severity,
                               Event event,
                               int64_t code,
                               const std::string& msg) override;
@@ -67,5 +66,3 @@ private:
 using FixtureLogObserver = FixtureLog::Observer;
 
 } // namespace mbgl
-
-#endif

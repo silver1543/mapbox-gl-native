@@ -1,5 +1,4 @@
-#ifndef MBGL_OFFLINE_DATABASE
-#define MBGL_OFFLINE_DATABASE
+#pragma once
 
 #include <mbgl/storage/resource.hpp>
 #include <mbgl/storage/offline.hpp>
@@ -16,8 +15,8 @@ namespace mapbox {
 namespace sqlite {
 class Database;
 class Statement;
-}
-}
+} // namespace sqlite
+} // namespace mapbox
 
 namespace mbgl {
 
@@ -28,8 +27,7 @@ class OfflineDatabase : private util::noncopyable {
 public:
     // Limits affect ambient caching (put) only; resources required by offline
     // regions are exempt.
-    OfflineDatabase(const std::string& path,
-                    uint64_t maximumCacheSize = util::DEFAULT_MAX_CACHE_SIZE);
+    OfflineDatabase(std::string path, uint64_t maximumCacheSize = util::DEFAULT_MAX_CACHE_SIZE);
     ~OfflineDatabase();
 
     optional<Response> get(const Resource&);
@@ -42,10 +40,13 @@ public:
     OfflineRegion createRegion(const OfflineRegionDefinition&,
                                const OfflineRegionMetadata&);
 
+    OfflineRegionMetadata updateMetadata(const int64_t regionID, const OfflineRegionMetadata&);
+    
     void deleteRegion(OfflineRegion&&);
 
     // Return value is (response, stored size)
     optional<std::pair<Response, uint64_t>> getRegionResource(int64_t regionID, const Resource&);
+    optional<int64_t> hasRegionResource(int64_t regionID, const Resource&);
     uint64_t putRegionResource(int64_t regionID, const Resource&, const Response&);
 
     OfflineRegionDefinition getRegionDefinition(int64_t regionID);
@@ -62,6 +63,7 @@ private:
     void ensureSchema();
     void removeExisting();
     void migrateToVersion3();
+    void migrateToVersion5();
 
     class Statement {
     public:
@@ -79,14 +81,17 @@ private:
     Statement getStatement(const char *);
 
     optional<std::pair<Response, uint64_t>> getTile(const Resource::TileData&);
+    optional<int64_t> hasTile(const Resource::TileData&);
     bool putTile(const Resource::TileData&, const Response&,
                  const std::string&, bool compressed);
 
     optional<std::pair<Response, uint64_t>> getResource(const Resource&);
+    optional<int64_t> hasResource(const Resource&);
     bool putResource(const Resource&, const Response&,
                      const std::string&, bool compressed);
 
     optional<std::pair<Response, uint64_t>> getInternal(const Resource&);
+    optional<int64_t> hasInternal(const Resource&);
     std::pair<bool, uint64_t> putInternal(const Resource&, const Response&, bool evict);
 
     // Return value is true iff the resource was previously unused by any other regions.
@@ -111,5 +116,3 @@ private:
 };
 
 } // namespace mbgl
-
-#endif

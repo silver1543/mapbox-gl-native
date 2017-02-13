@@ -1,22 +1,25 @@
-#import "MGLMapView_Internal.h"
+#import "MGLMapView_Private.h"
 
-#import <mbgl/platform/log.hpp>
-#import <mbgl/gl/gl.hpp>
+#include <mbgl/platform/log.hpp>
+#include <mbgl/gl/extension.hpp>
+#include <mbgl/gl/context.hpp>
 
 #import <GLKit/GLKit.h>
 #import <OpenGLES/EAGL.h>
 
 #include <mbgl/mbgl.hpp>
-#include <mbgl/annotation/point_annotation.hpp>
-#include <mbgl/annotation/shape_annotation.hpp>
+#include <mbgl/annotation/annotation.hpp>
 #include <mbgl/sprite/sprite_image.hpp>
 #include <mbgl/map/camera.hpp>
 #include <mbgl/map/mode.hpp>
 #include <mbgl/platform/platform.hpp>
 #include <mbgl/platform/darwin/reachability.h>
+#include <mbgl/platform/default/thread_pool.hpp>
 #include <mbgl/storage/default_file_source.hpp>
 #include <mbgl/storage/network_status.hpp>
-#include <mbgl/style/property_transition.hpp>
+#include <mbgl/style/transition_options.hpp>
+#include <mbgl/style/layers/custom_layer.hpp>
+#include <mbgl/map/backend.hpp>
 #include <mbgl/math/wrap.hpp>
 #include <mbgl/util/geo.hpp>
 #include <mbgl/util/constants.hpp>
@@ -24,30 +27,47 @@
 #include <mbgl/util/projection.hpp>
 #include <mbgl/util/default_styles.hpp>
 #include <mbgl/util/chrono.hpp>
+#include <mbgl/util/run_loop.hpp>
 
 #import "Mapbox.h"
+#import "MGLFeature_Private.h"
 #import "MGLGeometry_Private.h"
 #import "MGLMultiPoint_Private.h"
 #import "MGLOfflineStorage_Private.h"
 
 #import "NSBundle+MGLAdditions.h"
+#import "NSDate+MGLAdditions.h"
 #import "NSString+MGLAdditions.h"
 #import "NSProcessInfo+MGLAdditions.h"
 #import "NSException+MGLAdditions.h"
+#import "NSURL+MGLAdditions.h"
+#import "UIImage+MGLAdditions.h"
+
+#import "MGLFaux3DUserLocationAnnotationView.h"
 #import "MGLUserLocationAnnotationView.h"
+#import "MGLUserLocationAnnotationView_Private.h"
 #import "MGLUserLocation_Private.h"
 #import "MGLAnnotationImage_Private.h"
 #import "MGLAnnotationView_Private.h"
+#import "MGLStyle_Private.h"
+#import "MGLStyleLayer_Private.h"
 #import "MGLMapboxEvents.h"
 #import "MGLCompactCalloutView.h"
+#import "MGLAnnotationContainerView.h"
+#import "MGLAnnotationContainerView_Private.h"
+#import "MGLAttributionInfo.h"
 
-#import <algorithm>
-#import <cstdlib>
-#import <map>
-#import <unordered_set>
+#include <algorithm>
+#include <cstdlib>
+#include <map>
+#include <unordered_set>
 
 class MBGLView;
 class MGLAnnotationContext;
+
+const CGFloat MGLMapViewDecelerationRateNormal = UIScrollViewDecelerationRateNormal;
+const CGFloat MGLMapViewDecelerationRateFast = UIScrollViewDecelerationRateFast;
+const CGFloat MGLMapViewDecelerationRateImmediate = 0.0;
 
 /// Indicates the manner in which the map view is tracking the user location.
 typedef NS_ENUM(NSUInteger, MGLUserTrackingState) {
@@ -86,6 +106,10 @@ const CLLocationDirection MGLToleranceForSnappingToNorth = 7;
 /// Reuse identifier and file name of the default point annotation image.
 static NSString * const MGLDefaultStyleMarkerSymbolName = @"default_marker";
 
+/// Reuse identifier and file name of the invisible point annotation image used
+/// by annotations that are visually backed by MGLAnnotationView objects
+static NSString * const MGLInvisibleStyleMarkerSymbolName = @"invisible_marker";
+
 /// Prefix that denotes a sprite installed by MGLMapView, to avoid collisions
 /// with style-defined sprites.
 NSString *const MGLAnnotationSpritePrefix = @"com.mapbox.sprites.";
@@ -96,6 +120,8 @@ const CGFloat MGLAnnotationImagePaddingForHitTest = 5;
 /// Distance from the callout’s anchor point to the annotation it points to.
 const CGFloat MGLAnnotationImagePaddingForCallout = 1;
 
+const CGSize MGLAnnotationAccessibilityElementMinimumSize = CGSizeMake(10, 10);
+
 /// Unique identifier representing a single annotation in mbgl.
 typedef uint32_t MGLAnnotationTag;
 
@@ -104,7 +130,15 @@ enum { MGLAnnotationTagNotFound = UINT32_MAX };
 
 /// Mapping from an annotation tag to metadata about that annotation, including
 /// the annotation itself.
-typedef std::map<MGLAnnotationTag, MGLAnnotationContext> MGLAnnotationContextMap;
+typedef std::unordered_map<MGLAnnotationTag, MGLAnnotationContext> MGLAnnotationTagContextMap;
+
+/// Mapping from an annotation object to an annotation tag.
+typedef std::map<id<MGLAnnotation>, MGLAnnotationTag> MGLAnnotationObjectTagMap;
+
+/// Initializes the run loop shim that lives on the main thread.
+void MGLinitializeRunLoop() {
+    static mbgl::util::RunLoop mainRunLoop;
+}
 
 mbgl::util::UnitBezier MGLUnitBezierForMediaTimingFunction(CAMediaTimingFunction *function)
 {
@@ -116,17 +150,6 @@ mbgl::util::UnitBezier MGLUnitBezierForMediaTimingFunction(CAMediaTimingFunction
     [function getControlPointAtIndex:0 values:p1];
     [function getControlPointAtIndex:1 values:p2];
     return { p1[0], p1[1], p2[0], p2[1] };
-}
-
-mbgl::Color MGLColorObjectFromUIColor(UIColor *color)
-{
-    if (!color)
-    {
-        return {{ 0, 0, 0, 0 }};
-    }
-    CGFloat r, g, b, a;
-    [color getRed:&r green:&g blue:&b alpha:&a];
-    return {{ (float)r, (float)g, (float)b, (float)a }};
 }
 
 @interface MGLAnnotationAccessibilityElement : UIAccessibilityElement
@@ -208,11 +231,14 @@ public:
 @property (nonatomic) GLKView *glView;
 @property (nonatomic) UIImageView *glSnapshotView;
 @property (nonatomic, readwrite) UIImageView *compassView;
+@property (nonatomic) NS_MUTABLE_ARRAY_OF(NSLayoutConstraint *) *compassViewConstraints;
 @property (nonatomic, readwrite) UIImageView *logoView;
 @property (nonatomic) NS_MUTABLE_ARRAY_OF(NSLayoutConstraint *) *logoViewConstraints;
 @property (nonatomic, readwrite) UIButton *attributionButton;
 @property (nonatomic) NS_MUTABLE_ARRAY_OF(NSLayoutConstraint *) *attributionButtonConstraints;
 @property (nonatomic) UIActionSheet *attributionSheet;
+@property (nonatomic, readwrite) MGLStyle *style;
+@property (nonatomic) UITapGestureRecognizer *singleTapGestureRecognizer;
 @property (nonatomic) UIPanGestureRecognizer *pan;
 @property (nonatomic) UIPinchGestureRecognizer *pinch;
 @property (nonatomic) UIRotationGestureRecognizer *rotate;
@@ -232,6 +258,9 @@ public:
 @property (nonatomic, getter=isDormant) BOOL dormant;
 @property (nonatomic, readonly, getter=isRotationAllowed) BOOL rotationAllowed;
 @property (nonatomic) MGLMapViewProxyAccessibilityElement *mapViewProxyAccessibilityElement;
+@property (nonatomic) MGLAnnotationContainerView *annotationContainerView;
+@property (nonatomic) MGLUserLocation *userLocation;
+@property (nonatomic) NS_MUTABLE_DICTIONARY_OF(NSString *, NS_MUTABLE_ARRAY_OF(MGLAnnotationView *) *) *annotationViewReuseQueueByIdentifier;
 
 @end
 
@@ -239,22 +268,27 @@ public:
 {
     mbgl::Map *_mbglMap;
     MBGLView *_mbglView;
-    
+    mbgl::ThreadPool *_mbglThreadPool;
+
     BOOL _opaque;
 
     NS_MUTABLE_ARRAY_OF(NSURL *) *_bundledStyleURLs;
-   
-    MGLAnnotationContextMap _annotationContextsByAnnotationTag;
+
+    MGLAnnotationTagContextMap _annotationContextsByAnnotationTag;
+    MGLAnnotationObjectTagMap _annotationTagsByAnnotation;
+    
     /// Tag of the selected annotation. If the user location annotation is selected, this ivar is set to `MGLAnnotationTagNotFound`.
     MGLAnnotationTag _selectedAnnotationTag;
-    NS_MUTABLE_DICTIONARY_OF(NSString *, NS_MUTABLE_ARRAY_OF(MGLAnnotationView *) *) *_annotationViewReuseQueueByIdentifier;
-    
+
     BOOL _userLocationAnnotationIsSelected;
-    /// Size of the rectangle formed by unioning the maximum slop area around every annotation image.
-    CGSize _unionedAnnotationImageSize;
+    /// Size of the rectangle formed by unioning the maximum slop area around every annotation image and annotation image view.
+    CGSize _unionedAnnotationRepresentationSize;
+    CGSize _largestAnnotationViewSize;
     std::vector<MGLAnnotationTag> _annotationsNearbyLastTap;
     CGPoint _initialImplicitCalloutViewOffset;
     NSDate *_userLocationAnimationCompletionDate;
+    /// True if a willChange notification has been issued for shape annotation layers and a didChange notification is pending.
+    BOOL _isChangingAnnotationLayers;
 
     BOOL _isWaitingForRedundantReachableNotification;
     BOOL _isTargetingInterfaceBuilder;
@@ -264,29 +298,24 @@ public:
 
     CADisplayLink *_displayLink;
     BOOL _needsDisplayRefresh;
-    
+
     NSUInteger _changeDelimiterSuppressionDepth;
-    
+
     /// Center coordinate of the pinch gesture on the previous iteration of the gesture.
     CLLocationCoordinate2D _previousPinchCenterCoordinate;
     NSUInteger _previousPinchNumberOfTouches;
-    
+
     BOOL _delegateHasAlphasForShapeAnnotations;
     BOOL _delegateHasStrokeColorsForShapeAnnotations;
     BOOL _delegateHasFillColorsForShapeAnnotations;
     BOOL _delegateHasLineWidthsForShapeAnnotations;
-    
+
     MGLCompassDirectionFormatter *_accessibilityCompassFormatter;
     
-    CGSize _largestAnnotationViewSize;
+    NS_ARRAY_OF(MGLAttributionInfo *) *_attributionInfos;
 }
 
 #pragma mark - Setup & Teardown -
-
-mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
-{
-    return std::chrono::duration_cast<mbgl::Duration>(std::chrono::duration<NSTimeInterval>(duration));
-}
 
 - (instancetype)initWithFrame:(CGRect)frame
 {
@@ -318,6 +347,11 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     return self;
 }
 
++ (NS_SET_OF(NSString *) *)keyPathsForValuesAffectingStyle
+{
+    return [NSSet setWithObject:@"styleURL"];
+}
+
 + (NS_SET_OF(NSString *) *)keyPathsForValuesAffectingStyleURL
 {
     return [NSSet setWithObjects:@"styleURL__", nil];
@@ -333,18 +367,14 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (void)setStyleURL:(nullable NSURL *)styleURL
 {
     if (_isTargetingInterfaceBuilder) return;
-
+    
     if ( ! styleURL)
     {
         styleURL = [MGLStyle streetsStyleURLWithVersion:MGLStyleDefaultVersion];
     }
 
-    if ( ! [styleURL scheme])
-    {
-        // Assume a relative path into the application bundle.
-        styleURL = [NSURL URLWithString:[@"asset://" stringByAppendingString:[styleURL absoluteString]]];
-    }
-
+    styleURL = styleURL.mgl_URLByStandardizingScheme;
+    self.style = nil;
     _mbglMap->setStyleURL([[styleURL absoluteString] UTF8String]);
 }
 
@@ -354,10 +384,17 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     self.styleURL = styleURL;
 }
 
+- (mbgl::Map *)mbglMap
+{
+    return _mbglMap;
+}
+
 - (void)commonInit
 {
+    MGLinitializeRunLoop();
+
     _isTargetingInterfaceBuilder = NSProcessInfo.processInfo.mgl_isInterfaceBuilderDesignablesAgent;
-    _opaque = YES;
+    _opaque = NO;
 
     BOOL background = [UIApplication sharedApplication].applicationState == UIApplicationStateBackground;
     if (!background)
@@ -372,22 +409,25 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     self.accessibilityTraits = UIAccessibilityTraitAllowsDirectInteraction | UIAccessibilityTraitAdjustable;
     _accessibilityCompassFormatter = [[MGLCompassDirectionFormatter alloc] init];
     _accessibilityCompassFormatter.unitStyle = NSFormattingUnitStyleLong;
-    
+
     self.backgroundColor = [UIColor clearColor];
     self.clipsToBounds = YES;
 
     // setup mbgl view
-    const float scaleFactor = [UIScreen instancesRespondToSelector:@selector(nativeScale)] ? [[UIScreen mainScreen] nativeScale] : [[UIScreen mainScreen] scale];
-    _mbglView = new MBGLView(self, scaleFactor);
-    
+    _mbglView = new MBGLView(self);
+
     // Delete the pre-offline ambient cache at ~/Library/Caches/cache.db.
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
     NSString *fileCachePath = [paths.firstObject stringByAppendingPathComponent:@"cache.db"];
     [[NSFileManager defaultManager] removeItemAtPath:fileCachePath error:NULL];
 
     // setup mbgl map
+    const std::array<uint16_t, 2> size = {{ static_cast<uint16_t>(self.bounds.size.width),
+                                            static_cast<uint16_t>(self.bounds.size.height) }};
     mbgl::DefaultFileSource *mbglFileSource = [MGLOfflineStorage sharedOfflineStorage].mbglFileSource;
-    _mbglMap = new mbgl::Map(*_mbglView, *mbglFileSource, mbgl::MapMode::Continuous, mbgl::GLContextMode::Unique, mbgl::ConstrainMode::None, mbgl::ViewportMode::Default);
+    const float scaleFactor = [UIScreen instancesRespondToSelector:@selector(nativeScale)] ? [[UIScreen mainScreen] nativeScale] : [[UIScreen mainScreen] scale];
+    _mbglThreadPool = new mbgl::ThreadPool(4);
+    _mbglMap = new mbgl::Map(*_mbglView, size, scaleFactor, *mbglFileSource, *_mbglThreadPool, mbgl::MapMode::Continuous, mbgl::GLContextMode::Unique, mbgl::ConstrainMode::None, mbgl::ViewportMode::Default);
     [self validateTileCacheSize];
 
     // start paused if in IB
@@ -407,10 +447,11 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         _isWaitingForRedundantReachableNotification = YES;
     }
     [reachability startNotifier];
-    
+
     // Set up annotation management and selection state.
     _annotationImagesByIdentifier = [NSMutableDictionary dictionary];
     _annotationContextsByAnnotationTag = {};
+    _annotationTagsByAnnotation = {};
     _annotationViewReuseQueueByIdentifier = [NSMutableDictionary dictionary];
     _selectedAnnotationTag = MGLAnnotationTagNotFound;
     _annotationsNearbyLastTap = {};
@@ -439,17 +480,15 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     // setup compass
     //
     _compassView = [[UIImageView alloc] initWithImage:self.compassImage];
-    _compassView.frame = { CGPointZero, _compassView.image.size };
     _compassView.alpha = 0;
     _compassView.userInteractionEnabled = YES;
     [_compassView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleCompassTapGesture:)]];
     _compassView.accessibilityTraits = UIAccessibilityTraitButton;
     _compassView.accessibilityLabel = NSLocalizedStringWithDefaultValue(@"COMPASS_A11Y_LABEL", nil, nil, @"Compass", @"Accessibility label");
     _compassView.accessibilityHint = NSLocalizedStringWithDefaultValue(@"COMPASS_A11Y_HINT", nil, nil, @"Rotates the map to face due north", @"Accessibility hint");
-    UIView *container = [[UIView alloc] initWithFrame:CGRectZero];
-    [container addSubview:_compassView];
-    container.translatesAutoresizingMaskIntoConstraints = NO;
-    [self addSubview:container];
+    _compassView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:_compassView];
+    _compassViewConstraints = [NSMutableArray array];
 
     // setup interaction
     //
@@ -473,9 +512,10 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     doubleTap.numberOfTapsRequired = 2;
     [self addGestureRecognizer:doubleTap];
 
-    UITapGestureRecognizer *singleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleSingleTapGesture:)];
-    [singleTap requireGestureRecognizerToFail:doubleTap];
-    [self addGestureRecognizer:singleTap];
+    _singleTapGestureRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleSingleTapGesture:)];
+    [_singleTapGestureRecognizer requireGestureRecognizerToFail:doubleTap];
+    _singleTapGestureRecognizer.delegate = self;
+    [self addGestureRecognizer:_singleTapGestureRecognizer];
 
     UITapGestureRecognizer *twoFingerTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTwoFingerTapGesture:)];
     twoFingerTap.numberOfTouchesRequired = 2;
@@ -491,6 +531,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     [_twoFingerDrag requireGestureRecognizerToFail:_pan];
     [self addGestureRecognizer:_twoFingerDrag];
     _pitchEnabled = YES;
+
+    _decelerationRate = MGLMapViewDecelerationRateNormal;
 
     if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPhone)
     {
@@ -508,6 +550,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(wakeGL:) name:UIApplicationWillEnterForegroundNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(wakeGL:) name:UIApplicationDidBecomeActiveNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReceiveMemoryWarning) name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(deviceOrientationDidChange:) name:UIDeviceOrientationDidChangeNotification object:nil];
+    [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
 
     // set initial position
     //
@@ -548,7 +592,6 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     _glView.delegate = self;
     [_glView bindDrawable];
     [self insertSubview:_glView atIndex:0];
-
     _glView.contentMode = UIViewContentModeCenter;
 
     // load extensions
@@ -572,16 +615,26 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     UIImage *scaleImage = [MGLMapView resourceImageNamed:@"Compass.png"];
     UIGraphicsBeginImageContextWithOptions(scaleImage.size, NO, [UIScreen mainScreen].scale);
     [scaleImage drawInRect:{ CGPointZero, scaleImage.size }];
-    
+
+    CGFloat northSize = 9;
+    UIFont *northFont;
+    if ([UIFont respondsToSelector:@selector(systemFontOfSize:weight:)])
+    {
+        northFont = [UIFont systemFontOfSize:northSize weight:UIFontWeightUltraLight];
+    }
+    else
+    {
+        northFont = [UIFont systemFontOfSize:northSize];
+    }
     NSAttributedString *north = [[NSAttributedString alloc] initWithString:NSLocalizedStringWithDefaultValue(@"COMPASS_NORTH", nil, nil, @"N", @"Compass abbreviation for north") attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:9 weight:UIFontWeightUltraLight],
+        NSFontAttributeName: northFont,
         NSForegroundColorAttributeName: [UIColor whiteColor],
     }];
     CGRect stringRect = CGRectMake((scaleImage.size.width - north.size.width) / 2,
                                    scaleImage.size.height * 0.45,
                                    north.size.width, north.size.height);
     [north drawInRect:stringRect];
-    
+
     UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
     return image;
@@ -589,6 +642,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (void)reachabilityChanged:(NSNotification *)notification
 {
+    MGLAssertIsMainThread();
+
     MGLReachability *reachability = [notification object];
     if ( ! _isWaitingForRedundantReachableNotification && [reachability isReachable])
     {
@@ -599,16 +654,17 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (void)dealloc
 {
+    [[UIDevice currentDevice] endGeneratingDeviceOrientationNotifications];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_attributionButton removeObserver:self forKeyPath:@"hidden"];
-    
+
     // Removing the annotations unregisters any outstanding KVO observers.
     NSArray *annotations = self.annotations;
     if (annotations)
     {
         [self removeAnnotations:annotations];
     }
-    
+
     [self validateDisplayLink];
 
     if (_mbglMap)
@@ -621,6 +677,12 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         delete _mbglView;
         _mbglView = nullptr;
+    }
+
+    if (_mbglThreadPool)
+    {
+        delete _mbglThreadPool;
+        _mbglThreadPool = nullptr;
     }
 
     if ([[EAGLContext currentContext] isEqual:_context])
@@ -639,7 +701,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     if (_delegate == delegate) return;
 
     _delegate = delegate;
-    
+
     _delegateHasAlphasForShapeAnnotations = [_delegate respondsToSelector:@selector(mapView:alphaForShapeAnnotation:)];
     _delegateHasStrokeColorsForShapeAnnotations = [_delegate respondsToSelector:@selector(mapView:strokeColorForShapeAnnotation:)];
     _delegateHasFillColorsForShapeAnnotations = [_delegate respondsToSelector:@selector(mapView:fillColorForPolygonAnnotation:)];
@@ -648,6 +710,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (void)didReceiveMemoryWarning
 {
+    MGLAssertIsMainThread();
+
     _mbglMap->onLowMemory();
 }
 
@@ -677,7 +741,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return;
     }
-    
+
     CGFloat zoomFactor   = self.maximumZoomLevel - self.minimumZoomLevel + 1;
     CGFloat cpuFactor    = [NSProcessInfo processInfo].processorCount;
     CGFloat memoryFactor = (CGFloat)[NSProcessInfo processInfo].physicalMemory / 1000 / 1000 / 1000;
@@ -714,91 +778,44 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (void)updateConstraints
 {
-    // If we have a view controller reference, use its layout guides for our various top & bottom
-    // views so they don't underlap navigation or tool bars. If we don't have a reference, apply
-    // constraints against ourself to maintain (albeit less ideal) placement of the subviews.
-    //
-    UIViewController *viewController = self.viewControllerForLayoutGuides;
-    UIView *constraintParentView = (viewController.view ? viewController.view : self);
-
     // compass
     //
-    UIView *compassContainer = self.compassView.superview;
-    [compassContainer removeConstraints:compassContainer.constraints];
+    [self removeConstraints:self.compassViewConstraints];
+    [self.compassViewConstraints removeAllObjects];
 
-    NSMutableArray *compassContainerConstraints = [NSMutableArray array];
-    if (viewController)
-    {
-        [compassContainerConstraints addObject:
-         [NSLayoutConstraint constraintWithItem:compassContainer
-                                      attribute:NSLayoutAttributeTop
-                                      relatedBy:NSLayoutRelationGreaterThanOrEqual
-                                         toItem:viewController.topLayoutGuide
-                                      attribute:NSLayoutAttributeBottom
-                                     multiplier:1
-                                       constant:5]];
-    }
-    [compassContainerConstraints addObject:
-     [NSLayoutConstraint constraintWithItem:compassContainer
+    [self.compassViewConstraints addObject:
+     [NSLayoutConstraint constraintWithItem:self.compassView
                                   attribute:NSLayoutAttributeTop
-                                  relatedBy:NSLayoutRelationGreaterThanOrEqual
+                                  relatedBy:NSLayoutRelationEqual
                                      toItem:self
                                   attribute:NSLayoutAttributeTop
                                  multiplier:1
-                                   constant:5]];
+                                   constant:5 + self.contentInset.top]];
 
-    [compassContainerConstraints addObject:
+    [self.compassViewConstraints addObject:
      [NSLayoutConstraint constraintWithItem:self
                                   attribute:NSLayoutAttributeTrailing
                                   relatedBy:NSLayoutRelationEqual
-                                     toItem:compassContainer
+                                     toItem:self.compassView
                                   attribute:NSLayoutAttributeTrailing
                                  multiplier:1
-                                   constant:5]];
+                                   constant:5 + self.contentInset.right]];
 
-    UIImage *compassImage = self.compassView.image;
-    [compassContainerConstraints addObject:
-     [NSLayoutConstraint constraintWithItem:compassContainer
-                                  attribute:NSLayoutAttributeWidth
-                                  relatedBy:NSLayoutRelationEqual
-                                     toItem:nil
-                                  attribute:NSLayoutAttributeNotAnAttribute
-                                 multiplier:1
-                                   constant:compassImage.size.width]];
-
-    [compassContainerConstraints addObject:
-     [NSLayoutConstraint constraintWithItem:compassContainer
-                                  attribute:NSLayoutAttributeHeight
-                                  relatedBy:NSLayoutRelationEqual
-                                     toItem:nil
-                                  attribute:NSLayoutAttributeNotAnAttribute
-                                 multiplier:1
-                                   constant:compassImage.size.height]];
-    [constraintParentView addConstraints:compassContainerConstraints];
+    [self addConstraints:self.compassViewConstraints];
 
     // logo bug
     //
-    [self.logoView removeConstraints:self.logoViewConstraints];
+    [self removeConstraints:self.logoViewConstraints];
     [self.logoViewConstraints removeAllObjects];
-    if (viewController)
-    {
-        [self.logoViewConstraints addObject:
-         [NSLayoutConstraint constraintWithItem:viewController.bottomLayoutGuide
-                                      attribute:NSLayoutAttributeTop
-                                      relatedBy:NSLayoutRelationGreaterThanOrEqual
-                                         toItem:self.logoView
-                                      attribute:NSLayoutAttributeBaseline
-                                     multiplier:1
-                                       constant:8]];
-    }
+
     [self.logoViewConstraints addObject:
      [NSLayoutConstraint constraintWithItem:self
                                   attribute:NSLayoutAttributeBottom
-                                  relatedBy:NSLayoutRelationGreaterThanOrEqual
+                                  relatedBy:NSLayoutRelationEqual
                                      toItem:self.logoView
                                   attribute:NSLayoutAttributeBaseline
                                  multiplier:1
-                                   constant:8]];
+                                   constant:8 + self.contentInset.bottom]];
 
     [self.logoViewConstraints addObject:
      [NSLayoutConstraint constraintWithItem:self.logoView
@@ -807,32 +824,22 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                                      toItem:self
                                   attribute:NSLayoutAttributeLeading
                                  multiplier:1
-                                   constant:8]];
-    [constraintParentView addConstraints:self.logoViewConstraints];
+                                   constant:8 + self.contentInset.left]];
+    [self addConstraints:self.logoViewConstraints];
 
     // attribution button
     //
-    [self.attributionButton removeConstraints:self.attributionButtonConstraints];
+    [self removeConstraints:self.attributionButtonConstraints];
     [self.attributionButtonConstraints removeAllObjects];
-    if (viewController)
-    {
-        [self.attributionButtonConstraints addObject:
-         [NSLayoutConstraint constraintWithItem:viewController.bottomLayoutGuide
-                                      attribute:NSLayoutAttributeTop
-                                      relatedBy:NSLayoutRelationGreaterThanOrEqual
-                                         toItem:self.attributionButton
-                                      attribute:NSLayoutAttributeBaseline
-                                     multiplier:1
-                                       constant:8]];
-    }
+
     [self.attributionButtonConstraints addObject:
      [NSLayoutConstraint constraintWithItem:self
                                   attribute:NSLayoutAttributeBottom
-                                  relatedBy:NSLayoutRelationGreaterThanOrEqual
+                                  relatedBy:NSLayoutRelationEqual
                                      toItem:self.attributionButton
                                   attribute:NSLayoutAttributeBaseline
                                  multiplier:1
-                                   constant:8]];
+                                   constant:8 + self.contentInset.bottom]];
 
     [self.attributionButtonConstraints addObject:
      [NSLayoutConstraint constraintWithItem:self
@@ -841,8 +848,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                                      toItem:self.attributionButton
                                   attribute:NSLayoutAttributeTrailing
                                  multiplier:1
-                                   constant:8]];
-    [constraintParentView addConstraints:self.attributionButtonConstraints];
+                                   constant:8 + self.contentInset.right]];
+    [self addConstraints:self.attributionButtonConstraints];
 
     [super updateConstraints];
 }
@@ -862,7 +869,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 {
     if ( ! self.dormant)
     {
-        _mbglMap->render();
+        _mbglView->updateViewBinding();
+        _mbglMap->render(*_mbglView);
 
         [self updateUserLocationAnnotationView];
     }
@@ -872,12 +880,13 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (void)layoutSubviews
 {
     [super layoutSubviews];
-    
+
     [self adjustContentInset];
 
     if ( ! _isTargetingInterfaceBuilder)
     {
-        _mbglMap->update(mbgl::Update::Dimensions);
+        _mbglMap->setSize({{ static_cast<uint16_t>(self.bounds.size.width),
+                             static_cast<uint16_t>(self.bounds.size.height) }});
     }
 
     if (self.attributionSheet.visible)
@@ -890,7 +899,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         [self updateHeadingForDeviceOrientation];
         [self updateCompass];
     }
-    
+
     [self updateUserLocationAnnotationView];
 }
 
@@ -912,12 +921,12 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         // This map view is an immediate child of a view controller’s content view.
         viewController = (UIViewController *)self.superview.nextResponder;
     }
-    
+
     if ( ! viewController.automaticallyAdjustsScrollViewInsets)
     {
         return;
     }
-    
+
     UIEdgeInsets contentInset = UIEdgeInsetsZero;
     CGPoint topPoint = CGPointMake(0, viewController.topLayoutGuide.length);
     contentInset.top = [self convertPoint:topPoint fromView:viewController.view].y;
@@ -944,14 +953,14 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return;
     }
-    
+
     // After adjusting the content inset, move the center coordinate from the
     // old frame of reference to the new one represented by the newly set
     // content inset.
     CLLocationCoordinate2D oldCenter = self.centerCoordinate;
-    
+
     _contentInset = contentInset;
-    
+
     if (self.userTrackingMode == MGLUserTrackingModeNone)
     {
         // Don’t call -setCenterCoordinate:, which resets the user tracking mode.
@@ -961,6 +970,9 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         [self didUpdateLocationWithUserTrackingAnimated:animated];
     }
+
+    // Compass, logo and attribution button constraints needs to be updated.
+    [self setNeedsUpdateConstraints];
 }
 
 /// Returns the frame of inset content within the map view.
@@ -1018,11 +1030,12 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         {
             _mbglMap->setConstrainMode(mbgl::ConstrainMode::HeightOnly);
         }
-        
+
         _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(updateFromDisplayLink)];
         _displayLink.frameInterval = MGLTargetFrameInterval;
         [_displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
         _needsDisplayRefresh = YES;
+        [self updateFromDisplayLink];
     }
     else if ( ! isVisible && _displayLink)
     {
@@ -1043,6 +1056,11 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     [super didMoveToSuperview];
 }
 
+- (void)deviceOrientationDidChange:(__unused NSNotification *)notification
+{
+    [self setNeedsLayout];
+}
+
 - (void)sleepGL:(__unused NSNotification *)notification
 {
     MGLAssertIsMainThread();
@@ -1054,7 +1072,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         [self validateLocationServices];
 
         [MGLMapboxEvents flush];
-        
+
         _displayLink.paused = YES;
 
         if ( ! self.glSnapshotView)
@@ -1095,11 +1113,11 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         [self.glSnapshotView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
 
         [self.glView bindDrawable];
-        
+
         _displayLink.paused = NO;
 
         [self validateLocationServices];
-        
+
         [MGLMapboxEvents pushEvent:MGLEventTypeMapLoad withAttributes:@{}];
     }
 }
@@ -1120,6 +1138,10 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     if ([view respondsToSelector:@selector(setTintColor:)]) view.tintColor = self.tintColor;
 
     for (UIView *subview in view.subviews) [self updateTintColorForView:subview];
+}
+
+- (BOOL)canBecomeFirstResponder {
+    return YES;
 }
 
 #pragma mark - Gestures -
@@ -1176,7 +1198,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         [self trackGestureEvent:MGLEventGesturePanStart forRecognizer:pan];
 
         self.userTrackingMode = MGLUserTrackingModeNone;
-        
+
         [self notifyGestureDidBegin];
     }
     else if (pan.state == UIGestureRecognizerStateChanged)
@@ -1190,18 +1212,17 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     else if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled)
     {
         CGPoint velocity = [pan velocityInView:pan.view];
-        if (sqrtf(velocity.x * velocity.x + velocity.y * velocity.y) < 100)
+        if (self.decelerationRate == MGLMapViewDecelerationRateImmediate || sqrtf(velocity.x * velocity.x + velocity.y * velocity.y) < 100)
         {
             // Not enough velocity to overcome friction
             velocity = CGPointZero;
         }
 
-        NSTimeInterval duration = UIScrollViewDecelerationRateNormal;
         BOOL drift = ! CGPointEqualToPoint(velocity, CGPointZero);
         if (drift)
         {
-            CGPoint offset = CGPointMake(velocity.x * duration / 4, velocity.y * duration / 4);
-            _mbglMap->moveBy({ offset.x, offset.y }, MGLDurationInSeconds(duration));
+            CGPoint offset = CGPointMake(velocity.x * self.decelerationRate / 4, velocity.y * self.decelerationRate / 4);
+            _mbglMap->moveBy({ offset.x, offset.y }, MGLDurationInSeconds(self.decelerationRate));
         }
 
         [self notifyGestureDidEndWithDrift:drift];
@@ -1226,19 +1247,15 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     if (_mbglMap->getZoom() <= _mbglMap->getMinZoom() && pinch.scale < 1) return;
 
     _mbglMap->cancelTransitions();
-    
-    CGPoint centerPoint = [pinch locationInView:pinch.view];
-    if (self.userTrackingMode != MGLUserTrackingModeNone)
-    {
-        centerPoint = self.userLocationAnnotationViewCenter;
-    }
+
+    CGPoint centerPoint = [self anchorPointForGesture:pinch];
 
     if (pinch.state == UIGestureRecognizerStateBegan)
     {
         [self trackGestureEvent:MGLEventGesturePinchStart forRecognizer:pinch];
 
         self.scale = _mbglMap->getScale();
-        
+
         [self notifyGestureDidBegin];
     }
     else if (pinch.state == UIGestureRecognizerStateChanged)
@@ -1246,9 +1263,9 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         CGFloat newScale = self.scale * pinch.scale;
 
         if (log2(newScale) < _mbglMap->getMinZoom()) return;
-        
+
         _mbglMap->setScale(newScale, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
-        
+
         // The gesture recognizer only reports the gesture’s current center
         // point, so use the previous center point to anchor the transition.
         // If the number of touches has changed, the remembered center point is
@@ -1275,7 +1292,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             velocity = 0;
         }
 
-        NSTimeInterval duration = velocity > 0 ? 1 : 0.25;
+        NSTimeInterval duration = (velocity > 0 ? 1 : 0.25) * self.decelerationRate;
 
         CGFloat scale = self.scale * pinch.scale;
         CGFloat newScale = scale;
@@ -1293,17 +1310,17 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             velocity = 0;
         }
 
-        if (velocity)
+        if (velocity && duration)
         {
             _mbglMap->setScale(newScale, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y }, MGLDurationInSeconds(duration));
         }
 
-        [self notifyGestureDidEndWithDrift:velocity];
+        [self notifyGestureDidEndWithDrift:velocity && duration];
 
         [self unrotateIfNeededForGesture];
     }
-    
-    _previousPinchCenterCoordinate = [self convertPoint:[pinch locationInView:pinch.view] toCoordinateFromView:self];
+
+    _previousPinchCenterCoordinate = [self convertPoint:centerPoint toCoordinateFromView:self];
     _previousPinchNumberOfTouches = pinch.numberOfTouches;
 }
 
@@ -1312,12 +1329,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     if ( ! self.isRotateEnabled) return;
 
     _mbglMap->cancelTransitions();
-    
-    CGPoint centerPoint = [rotate locationInView:rotate.view];
-    if (self.userTrackingMode != MGLUserTrackingModeNone)
-    {
-        centerPoint = self.userLocationAnnotationViewCenter;
-    }
+
+    CGPoint centerPoint = [self anchorPointForGesture:rotate];
 
     if (rotate.state == UIGestureRecognizerStateBegan)
     {
@@ -1329,7 +1342,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         {
             self.userTrackingMode = MGLUserTrackingModeFollow;
         }
-        
+
         [self notifyGestureDidBegin];
     }
     else if (rotate.state == UIGestureRecognizerStateChanged)
@@ -1343,7 +1356,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             newDegrees = fminf(newDegrees,  30);
             newDegrees = fmaxf(newDegrees, -30);
         }
-        
+
         _mbglMap->setBearing(newDegrees, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
 
         [self notifyMapChange:mbgl::MapChangeRegionIsChanging];
@@ -1351,21 +1364,20 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     else if (rotate.state == UIGestureRecognizerStateEnded || rotate.state == UIGestureRecognizerStateCancelled)
     {
         CGFloat velocity = rotate.velocity;
-
-        if (fabs(velocity) > 3)
+        CGFloat decelerationRate = self.decelerationRate;
+        if (decelerationRate != MGLMapViewDecelerationRateImmediate && fabs(velocity) > 3)
         {
             CGFloat radians = self.angle + rotate.rotation;
-            NSTimeInterval duration = UIScrollViewDecelerationRateNormal;
-            CGFloat newRadians = radians + velocity * duration * 0.1;
+            CGFloat newRadians = radians + velocity * decelerationRate * 0.1;
             CGFloat newDegrees = MGLDegreesFromRadians(newRadians) * -1;
 
-            _mbglMap->setBearing(newDegrees, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y }, MGLDurationInSeconds(duration));
+            _mbglMap->setBearing(newDegrees, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y }, MGLDurationInSeconds(decelerationRate));
 
             [self notifyGestureDidEndWithDrift:YES];
 
             __weak MGLMapView *weakSelf = self;
 
-            [self animateWithDelay:duration animations:^
+            [self animateWithDelay:decelerationRate animations:^
              {
                  [weakSelf unrotateIfNeededForGesture];
              }];
@@ -1385,7 +1397,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         return;
     }
     [self trackGestureEvent:MGLEventGestureSingleTap forRecognizer:singleTap];
-    
+
     if (self.mapViewProxyAccessibilityElement.accessibilityElementIsFocused)
     {
         id nextElement;
@@ -1402,39 +1414,78 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         return;
     }
 
+    id<MGLAnnotation>annotation = [self annotationForGestureRecognizer:singleTap persistingResults:YES];
+    if(annotation)
+    {
+        [self selectAnnotation:annotation animated:YES];
+    }
+    else
+    {
+        [self deselectAnnotation:self.selectedAnnotation animated:YES];
+    }
+}
+
+/**
+ Returns the annotation that would be selected by a tap gesture recognizer.
+ 
+ This is used when a gesture is recognized, and to check if the gesture should be recognized.
+ 
+ @param singleTap An in progress tap gesture recognizer.
+ @param persist True to remember the cycleable set of annotations. @see annotationTagAtPoint:persistingResults
+ */
+- (nullable id <MGLAnnotation>)annotationForGestureRecognizer:(UITapGestureRecognizer*)singleTap persistingResults:(BOOL)persist
+{
     CGPoint tapPoint = [singleTap locationInView:self];
 
-    if (self.userLocationVisible
-        && [self.userLocationAnnotationView.layer.presentationLayer hitTest:tapPoint])
+    if (self.userLocationVisible)
     {
-        if ( ! _userLocationAnnotationIsSelected)
+        CGPoint tapPointForUserLocation;
+        if (self.userLocationAnnotationView.hitTestLayer == self.userLocationAnnotationView.layer.presentationLayer)
         {
-            [self selectAnnotation:self.userLocation animated:YES];
+            tapPointForUserLocation = tapPoint;
         }
-        return;
-    }
-   
-    MGLAnnotationView *hitAnnotationView = [self annotationViewAtPoint:tapPoint];
-    if (hitAnnotationView)
-    {
-        [self selectAnnotation:hitAnnotationView.annotation animated:YES];
-        return;
+        else
+        {
+            // Get the tap point within the custom hit test layer.
+            tapPointForUserLocation = [singleTap locationInView:self.userLocationAnnotationView];
+        }
+        
+        CALayer *hitLayer = [self.userLocationAnnotationView.hitTestLayer hitTest:tapPointForUserLocation];
+        
+        if (hitLayer)
+        {
+            if ( ! _userLocationAnnotationIsSelected)
+            {
+                return self.userLocation;
+            }
+            return nil;
+        }
     }
     
-    MGLAnnotationTag hitAnnotationTag = [self annotationTagAtPoint:tapPoint persistingResults:YES];
+    // Handle the case of an offset annotation view by converting the tap point to be the geo location
+    // of the annotation itself that the view represents
+    for (MGLAnnotationView *view in self.annotationContainerView.annotationViews)
+    {
+        if (view.centerOffset.dx != 0 || view.centerOffset.dy != 0) {
+            if (CGRectContainsPoint(view.frame, tapPoint)) {
+                CGPoint annotationPoint = [self convertCoordinate:view.annotation.coordinate toPointToView:self];
+                tapPoint = annotationPoint;
+            }
+        }
+    }
+    
+    MGLAnnotationTag hitAnnotationTag = [self annotationTagAtPoint:tapPoint persistingResults:persist];
     if (hitAnnotationTag != MGLAnnotationTagNotFound)
     {
         if (hitAnnotationTag != _selectedAnnotationTag)
         {
             id <MGLAnnotation> annotation = [self annotationWithTag:hitAnnotationTag];
             NSAssert(annotation, @"Cannot select nonexistent annotation with tag %u", hitAnnotationTag);
-            [self selectAnnotation:annotation animated:YES];
+            return annotation;
         }
     }
-    else
-    {
-        [self deselectAnnotation:self.selectedAnnotation animated:YES];
-    }
+    
+    return nil;
 }
 
 - (void)handleDoubleTapGesture:(UITapGestureRecognizer *)doubleTap
@@ -1446,11 +1497,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     if (doubleTap.state == UIGestureRecognizerStateEnded)
     {
         [self trackGestureEvent:MGLEventGestureDoubleTap forRecognizer:doubleTap];
-        CGPoint gesturePoint = [doubleTap locationInView:doubleTap.view];
-        if (self.userTrackingMode != MGLUserTrackingModeNone)
-        {
-            gesturePoint = self.userLocationAnnotationViewCenter;
-        }
+        CGPoint gesturePoint = [self anchorPointForGesture:doubleTap];
 
         mbgl::ScreenCoordinate center(gesturePoint.x, gesturePoint.y);
         _mbglMap->scaleBy(2, center, MGLDurationInSeconds(MGLAnimationDuration));
@@ -1478,11 +1525,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     }
     else if (twoFingerTap.state == UIGestureRecognizerStateEnded)
     {
-        CGPoint gesturePoint = [twoFingerTap locationInView:twoFingerTap.view];
-        if (self.userTrackingMode != MGLUserTrackingModeNone)
-        {
-            gesturePoint = self.userLocationAnnotationViewCenter;
-        }
+        CGPoint gesturePoint = [self anchorPointForGesture:twoFingerTap];
 
         mbgl::ScreenCoordinate center(gesturePoint.x, gesturePoint.y);
         _mbglMap->scaleBy(0.5, center, MGLDurationInSeconds(MGLAnimationDuration));
@@ -1509,7 +1552,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         self.scale = _mbglMap->getScale();
 
         self.quickZoomStart = [quickZoom locationInView:quickZoom.view].y;
-        
+
         [self notifyGestureDidBegin];
     }
     else if (quickZoom.state == UIGestureRecognizerStateChanged)
@@ -1519,12 +1562,9 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         CGFloat newZoom = log2f(self.scale) + (distance / 75);
 
         if (newZoom < _mbglMap->getMinZoom()) return;
-        
-        CGPoint centerPoint = self.contentCenter;
-        if (self.userTrackingMode != MGLUserTrackingModeNone)
-        {
-            centerPoint = self.userLocationAnnotationViewCenter;
-        }
+
+        CGPoint centerPoint = [self anchorPointForGesture:quickZoom];
+
         _mbglMap->scaleBy(powf(2, newZoom) / _mbglMap->getScale(),
                           mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
 
@@ -1555,12 +1595,9 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         CGFloat slowdown = 20.0;
 
         CGFloat pitchNew = currentPitch - (gestureDistance / slowdown);
-        
-        CGPoint centerPoint = self.contentCenter;
-        if (self.userTrackingMode != MGLUserTrackingModeNone)
-        {
-            centerPoint = self.userLocationAnnotationViewCenter;
-        }
+
+        CGPoint centerPoint = [self anchorPointForGesture:twoFingerDrag];
+
         _mbglMap->setPitch(pitchNew, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
 
         [self notifyMapChange:mbgl::MapChangeRegionIsChanging];
@@ -1570,7 +1607,21 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         [self notifyGestureDidEndWithDrift:NO];
         [self unrotateIfNeededForGesture];
     }
+}
 
+- (CGPoint)anchorPointForGesture:(UIGestureRecognizer *)gesture {
+    if (self.userTrackingMode != MGLUserTrackingModeNone)
+    {
+        return self.userLocationAnnotationViewCenter;
+    }
+
+    // Special case for two-finger drag and quickzoom
+    if ([gesture isKindOfClass:[UIPanGestureRecognizer class]] || [gesture isKindOfClass:[UILongPressGestureRecognizer class]])
+    {
+        return self.contentCenter;
+    }
+
+    return [gesture locationInView:gesture.view];
 }
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer
@@ -1591,6 +1642,17 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                 return NO;
             }
         }
+    }
+    else if (gestureRecognizer == _singleTapGestureRecognizer)
+    {
+      //Gesture will be recognized if it could deselect an annotation
+      if(!self.selectedAnnotation)
+      {
+          id<MGLAnnotation>annotation = [self annotationForGestureRecognizer:(UITapGestureRecognizer*)gestureRecognizer persistingResults:NO];
+          if(!annotation) {
+              return NO;
+          }
+      }
     }
     return YES;
 }
@@ -1663,44 +1725,27 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (void)showAttribution
 {
-    if ( ! self.attributionSheet)
+    self.attributionSheet = [[UIActionSheet alloc] initWithTitle:NSLocalizedStringWithDefaultValue(@"SDK_NAME", nil, nil, @"Mapbox iOS SDK", @"Action sheet title")
+                                                        delegate:self
+                                               cancelButtonTitle:NSLocalizedStringWithDefaultValue(@"CANCEL", nil, nil, @"Cancel", @"")
+                                          destructiveButtonTitle:nil
+                                               otherButtonTitles:nil];
+    
+    _attributionInfos = [self.style attributionInfosWithFontSize:[UIFont buttonFontSize] linkColor:nil];
+    for (MGLAttributionInfo *info in _attributionInfos)
     {
-        self.attributionSheet = [[UIActionSheet alloc] initWithTitle:NSLocalizedStringWithDefaultValue(@"SDK_NAME", nil, nil, @"Mapbox iOS SDK", @"Action sheet title")
-                                                            delegate:self
-                                                   cancelButtonTitle:NSLocalizedStringWithDefaultValue(@"CANCEL", nil, nil, @"Cancel", @"")
-                                              destructiveButtonTitle:nil
-                                                   otherButtonTitles:
-                                 NSLocalizedStringWithDefaultValue(@"COPY_MAPBOX", nil, nil, @"© Mapbox", @"Copyright notice in attribution sheet"),
-                                 NSLocalizedStringWithDefaultValue(@"COPY_OSM", nil, nil, @"© OpenStreetMap", @"Copyright notice in attribution sheet"),
-                                 NSLocalizedStringWithDefaultValue(@"MAP_FEEDBACK", nil, nil, @"Improve This Map", @"Action in attribution sheet"),
-                                 NSLocalizedStringWithDefaultValue(@"TELEMETRY_NAME", nil, nil, @"Mapbox Telemetry", @"Action in attribution sheet"),
-                                 nil];
-
+        NSString *title = [info.title.string mgl_titleCasedStringWithLocale:[NSLocale currentLocale]];
+        [self.attributionSheet addButtonWithTitle:title];
     }
+    
+    [self.attributionSheet addButtonWithTitle:NSLocalizedStringWithDefaultValue(@"TELEMETRY_NAME", nil, nil, @"Mapbox Telemetry", @"Action in attribution sheet")];
     
     [self.attributionSheet showFromRect:self.attributionButton.frame inView:self animated:YES];
 }
 
 - (void)actionSheet:(UIActionSheet *)actionSheet didDismissWithButtonIndex:(NSInteger)buttonIndex
 {
-    if (buttonIndex == actionSheet.firstOtherButtonIndex)
-    {
-        [[UIApplication sharedApplication] openURL:
-         [NSURL URLWithString:@"https://www.mapbox.com/about/maps/"]];
-    }
-    else if (buttonIndex == actionSheet.firstOtherButtonIndex + 1)
-    {
-        [[UIApplication sharedApplication] openURL:
-         [NSURL URLWithString:@"http://www.openstreetmap.org/about/"]];
-    }
-    else if (buttonIndex == actionSheet.firstOtherButtonIndex + 2)
-    {
-        NSString *feedbackURL = [NSString stringWithFormat:@"https://www.mapbox.com/map-feedback/#/%.5f/%.5f/%i",
-                                 self.longitude, self.latitude, (int)round(self.zoomLevel + 1)];
-        [[UIApplication sharedApplication] openURL:
-         [NSURL URLWithString:feedbackURL]];
-    }
-    else if (buttonIndex == actionSheet.firstOtherButtonIndex + 3)
+    if (buttonIndex == actionSheet.numberOfButtons - 1)
     {
         NSString *message;
         NSString *participate;
@@ -1725,6 +1770,19 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                                               cancelButtonTitle:participate
                                               otherButtonTitles:NSLocalizedStringWithDefaultValue(@"TELEMETRY_MORE", nil, nil, @"Tell Me More", @"Telemetry prompt button"), optOut, nil];
         [alert show];
+    }
+    else if (buttonIndex > 0)
+    {
+        MGLAttributionInfo *info = _attributionInfos[buttonIndex + actionSheet.firstOtherButtonIndex];
+        NSURL *url = info.URL;
+        if (url)
+        {
+            if (info.feedbackLink)
+            {
+                url = [info feedbackURLAtCenterCoordinate:self.centerCoordinate zoomLevel:self.zoomLevel];
+            }
+            [[UIApplication sharedApplication] openURL:url];
+        }
     }
 }
 
@@ -1770,9 +1828,43 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         // but safely updated.
         if (annotation == [self annotationWithTag:annotationTag])
         {
-            const mbgl::LatLng latLng = MGLLatLngFromLocationCoordinate2D(annotation.coordinate);
+            const mbgl::Point<double> point = MGLPointFromLocationCoordinate2D(annotation.coordinate);
+
+            MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
+            if (annotationContext.annotationView)
+            {
+                // Redundantly move the associated annotation view outside the scope of the animation-less transaction block in -updateAnnotationViews.
+                annotationContext.annotationView.center = [self convertCoordinate:annotationContext.annotation.coordinate toPointToView:self];
+            }
+
             MGLAnnotationImage *annotationImage = [self imageOfAnnotationWithTag:annotationTag];
-            _mbglMap->updatePointAnnotation(annotationTag, { latLng, annotationImage.styleIconIdentifier.UTF8String ?: "" });
+            NSString *symbolName = annotationImage.styleIconIdentifier;
+
+            // Update the annotation’s backing geometry to match the annotation model object. Any associated annotation view is also moved by side effect. However, -updateAnnotationViews disables the view’s animation actions, because it can’t distinguish between moves due to the viewport changing and moves due to the annotation’s coordinate changing.
+            _mbglMap->updateAnnotation(annotationTag, mbgl::SymbolAnnotation { point, symbolName.UTF8String });
+            if (annotationTag == _selectedAnnotationTag)
+            {
+                [self deselectAnnotation:annotation animated:YES];
+            }
+        }
+    }
+    else if ([keyPath isEqualToString:@"coordinates"] && [object isKindOfClass:[MGLMultiPoint class]])
+    {
+        MGLMultiPoint *annotation = object;
+        MGLAnnotationTag annotationTag = (MGLAnnotationTag)(NSUInteger)context;
+        // We can get here because a subclass registered itself as an observer
+        // of the coordinates key path of a multipoint annotation but failed
+        // to handle the change. This check deters us from treating the
+        // subclass’s context as an annotation tag. If the context happens to
+        // match a valid annotation tag, the annotation will be unnecessarily
+        // but safely updated.
+        if (annotation == [self annotationWithTag:annotationTag])
+        {
+            // Update the annotation’s backing geometry to match the annotation model object.
+            _mbglMap->updateAnnotation(annotationTag, [annotation annotationObjectWithDelegate:self]);
+
+            // We don't current support shape multipoint annotation selection, but let's make sure
+            // deselection is handled just to avoid problems in the future.
             if (annotationTag == _selectedAnnotationTag)
             {
                 [self deselectAnnotation:annotation animated:YES];
@@ -1821,6 +1913,10 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         mask |= MGLMapDebugCollisionBoxesMask;
     }
+    if (options & mbgl::MapDebugOptions::Overdraw)
+    {
+        mask |= MGLMapDebugOverdrawVisualizationMask;
+    }
     return mask;
 }
 
@@ -1842,6 +1938,10 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     if (debugMask & MGLMapDebugCollisionBoxesMask)
     {
         options |= mbgl::MapDebugOptions::Collision;
+    }
+    if (debugMask & MGLMapDebugOverdrawVisualizationMask)
+    {
+        options |= mbgl::MapDebugOptions::Overdraw;
     }
     _mbglMap->setDebug(options);
 }
@@ -1875,9 +1975,13 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (void)resetPosition
 {
-    MGLMapCamera *camera = [MGLMapCamera camera];
-    camera.altitude = MGLAltitudeForZoomLevel(0, 0, 0, self.frame.size);
-    self.camera = camera;
+    CGFloat pitch = _mbglMap->getDefaultPitch();
+    CLLocationDirection heading = mbgl::util::wrap(_mbglMap->getDefaultBearing(), 0., 360.);
+    CLLocationDistance distance = MGLAltitudeForZoomLevel(_mbglMap->getDefaultZoom(), pitch, 0, self.frame.size);
+    self.camera = [MGLMapCamera cameraLookingAtCenterCoordinate:MGLLocationCoordinate2DFromLatLng(_mbglMap->getDefaultLatLng())
+                                                   fromDistance:distance
+                                                          pitch:pitch
+                                                        heading:heading];
 }
 
 - (void)emptyMemoryCache
@@ -1909,14 +2013,14 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (UIBezierPath *)accessibilityPath
 {
     UIBezierPath *path = [UIBezierPath bezierPathWithRect:self.accessibilityFrame];
-    
+
     // Exclude any visible annotation callout view.
     if (self.calloutViewForSelectedAnnotation)
     {
         UIBezierPath *calloutViewPath = [UIBezierPath bezierPathWithRect:self.calloutViewForSelectedAnnotation.frame];
         [path appendPath:calloutViewPath];
     }
-    
+
     return path;
 }
 
@@ -1957,7 +2061,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         return nil;
     }
     std::vector<MGLAnnotationTag> visibleAnnotations = [self annotationTagsInRect:self.bounds];
-    
+
     // Ornaments
     if (index == 0)
     {
@@ -1975,7 +2079,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return self.attributionButton;
     }
-    
+
     std::sort(visibleAnnotations.begin(), visibleAnnotations.end());
     CGPoint centerPoint = self.contentCenter;
     if (self.userTrackingMode != MGLUserTrackingModeNone)
@@ -1992,7 +2096,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                                          coordinateB.longitude - currentCoordinate.longitude);
         return deltaA < deltaB;
     });
-    
+
     NSUInteger annotationIndex = MGLAnnotationTagNotFound;
     if (index >= 0 && (NSUInteger)(index - 2) < visibleAnnotations.size())
     {
@@ -2003,20 +2107,32 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     NSAssert(_annotationContextsByAnnotationTag.count(annotationTag), @"Missing annotation for tag %u.", annotationTag);
     MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
     id <MGLAnnotation> annotation = annotationContext.annotation;
-    
+
+    // Let the annotation view serve as its own accessibility element.
+    MGLAnnotationView *annotationView = annotationContext.annotationView;
+    if (annotationView && annotationView.superview)
+    {
+        return annotationView;
+    }
+
     // Lazily create an accessibility element for the found annotation.
     if ( ! annotationContext.accessibilityElement)
     {
         annotationContext.accessibilityElement = [[MGLAnnotationAccessibilityElement alloc] initWithAccessibilityContainer:self tag:annotationTag];
     }
-    
+
     // Update the accessibility element.
     MGLAnnotationImage *annotationImage = [self imageOfAnnotationWithTag:annotationTag];
     CGRect annotationFrame = [self frameOfImage:annotationImage.image centeredAtCoordinate:annotation.coordinate];
+    CGPoint annotationFrameCenter = CGPointMake(CGRectGetMidX(annotationFrame), CGRectGetMidY(annotationFrame));
+    CGRect minimumFrame = CGRectInset({ annotationFrameCenter, CGSizeZero },
+                                      -MGLAnnotationAccessibilityElementMinimumSize.width / 2,
+                                      -MGLAnnotationAccessibilityElementMinimumSize.height / 2);
+    annotationFrame = CGRectUnion(annotationFrame, minimumFrame);
     CGRect screenRect = UIAccessibilityConvertFrameToScreenCoordinates(annotationFrame, self);
     annotationContext.accessibilityElement.accessibilityFrame = screenRect;
     annotationContext.accessibilityElement.accessibilityHint = NSLocalizedStringWithDefaultValue(@"ANNOTATION_A11Y_HINT", nil, nil, @"Shows more info", @"Accessibility hint");
-    
+
     if ([annotation respondsToSelector:@selector(title)])
     {
         annotationContext.accessibilityElement.accessibilityLabel = annotation.title;
@@ -2025,7 +2141,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         annotationContext.accessibilityElement.accessibilityValue = annotation.subtitle;
     }
-    
+
     return annotationContext.accessibilityElement;
 }
 
@@ -2044,20 +2160,30 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return 1;
     }
-    if ( ! [element isKindOfClass:[MGLAnnotationAccessibilityElement class]] &&
-        element != self.attributionButton)
-    {
-        return NSNotFound;
-    }
-    
+
     std::vector<MGLAnnotationTag> visibleAnnotations = [self annotationTagsInRect:self.bounds];
-    if (element == self.attributionButton)
+
+    MGLAnnotationTag tag = MGLAnnotationTagNotFound;
+    if ([element isKindOfClass:[MGLAnnotationView class]])
+    {
+        id <MGLAnnotation> annotation = [(MGLAnnotationView *)element annotation];
+        tag = [self annotationTagForAnnotation:annotation];
+    }
+    else if ([element isKindOfClass:[MGLAnnotationAccessibilityElement class]])
+    {
+        tag = [(MGLAnnotationAccessibilityElement *)element tag];
+    }
+    else if (element == self.attributionButton)
     {
         return !!self.userLocationAnnotationView + visibleAnnotations.size();
     }
+    else
+    {
+        return NSNotFound;
+    }
+
     std::sort(visibleAnnotations.begin(), visibleAnnotations.end());
-    auto foundElement = std::find(visibleAnnotations.begin(), visibleAnnotations.end(),
-                                  ((MGLAnnotationAccessibilityElement *)element).tag);
+    auto foundElement = std::find(visibleAnnotations.begin(), visibleAnnotations.end(), tag);
     if (foundElement == visibleAnnotations.end())
     {
         return NSNotFound;
@@ -2095,7 +2221,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     }
     _mbglMap->scaleBy(scaleFactor, mbgl::ScreenCoordinate { centerPoint.x, centerPoint.y });
     [self unrotateIfNeededForGesture];
-    
+
     UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, self.accessibilityValue);
 }
 
@@ -2145,7 +2271,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (void)_setCenterCoordinate:(CLLocationCoordinate2D)centerCoordinate edgePadding:(UIEdgeInsets)insets zoomLevel:(double)zoomLevel direction:(CLLocationDirection)direction duration:(NSTimeInterval)duration animationTimingFunction:(nullable CAMediaTimingFunction *)function completionHandler:(nullable void (^)(void))completion
 {
     _mbglMap->cancelTransitions();
-    
+
     mbgl::CameraOptions cameraOptions;
     cameraOptions.center = MGLLatLngFromLocationCoordinate2D(centerCoordinate);
     cameraOptions.padding = MGLEdgeInsetsFromNSEdgeInsets(insets);
@@ -2154,12 +2280,12 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         cameraOptions.angle = MGLRadiansFromDegrees(-direction);
     }
-    
+
     mbgl::AnimationOptions animationOptions;
     if (duration)
     {
-        animationOptions.duration = MGLDurationInSeconds(duration);
-        animationOptions.easing = MGLUnitBezierForMediaTimingFunction(function);
+        animationOptions.duration.emplace(MGLDurationInSeconds(duration));
+        animationOptions.easing.emplace(MGLUnitBezierForMediaTimingFunction(function));
     }
     if (completion)
     {
@@ -2194,9 +2320,9 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 {
     if (zoomLevel == self.zoomLevel) return;
     _mbglMap->cancelTransitions();
-    
+
     CGFloat duration = animated ? MGLAnimationDuration : 0;
-    
+
     _mbglMap->setZoom(zoomLevel,
                       MGLEdgeInsetsFromNSEdgeInsets(self.contentInset),
                       MGLDurationInSeconds(duration));
@@ -2268,51 +2394,51 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                        animated:animated];
 }
 
-- (void)setVisibleCoordinates:(CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets animated:(BOOL)animated
+- (void)setVisibleCoordinates:(const CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets animated:(BOOL)animated
 {
     [self setVisibleCoordinates:coordinates count:count edgePadding:insets direction:self.direction animated:animated];
 }
 
-- (void)setVisibleCoordinates:(CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets direction:(CLLocationDirection)direction animated:(BOOL)animated
+- (void)setVisibleCoordinates:(const CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets direction:(CLLocationDirection)direction animated:(BOOL)animated
 {
     [self setVisibleCoordinates:coordinates count:count edgePadding:insets direction:direction duration:animated ? MGLAnimationDuration : 0 animationTimingFunction:nil];
 }
 
-- (void)setVisibleCoordinates:(CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets direction:(CLLocationDirection)direction duration:(NSTimeInterval)duration animationTimingFunction:(nullable CAMediaTimingFunction *)function {
+- (void)setVisibleCoordinates:(const CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets direction:(CLLocationDirection)direction duration:(NSTimeInterval)duration animationTimingFunction:(nullable CAMediaTimingFunction *)function {
     [self setVisibleCoordinates:coordinates count:count edgePadding:insets direction:direction duration:duration animationTimingFunction:function completionHandler:NULL];
 }
 
-- (void)setVisibleCoordinates:(CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets direction:(CLLocationDirection)direction duration:(NSTimeInterval)duration animationTimingFunction:(nullable CAMediaTimingFunction *)function completionHandler:(nullable void (^)(void))completion
+- (void)setVisibleCoordinates:(const CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets direction:(CLLocationDirection)direction duration:(NSTimeInterval)duration animationTimingFunction:(nullable CAMediaTimingFunction *)function completionHandler:(nullable void (^)(void))completion
 {
     self.userTrackingMode = MGLUserTrackingModeNone;
     [self _setVisibleCoordinates:coordinates count:count edgePadding:insets direction:direction duration:duration animationTimingFunction:function completionHandler:completion];
 }
 
-- (void)_setVisibleCoordinates:(CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets direction:(CLLocationDirection)direction duration:(NSTimeInterval)duration animationTimingFunction:(nullable CAMediaTimingFunction *)function completionHandler:(nullable void (^)(void))completion
+- (void)_setVisibleCoordinates:(const CLLocationCoordinate2D *)coordinates count:(NSUInteger)count edgePadding:(UIEdgeInsets)insets direction:(CLLocationDirection)direction duration:(NSTimeInterval)duration animationTimingFunction:(nullable CAMediaTimingFunction *)function completionHandler:(nullable void (^)(void))completion
 {
     _mbglMap->cancelTransitions();
-    
+
     [self willChangeValueForKey:@"visibleCoordinateBounds"];
     mbgl::EdgeInsets padding = MGLEdgeInsetsFromNSEdgeInsets(insets);
     padding += MGLEdgeInsetsFromNSEdgeInsets(self.contentInset);
-    mbgl::AnnotationSegment segment;
-    segment.reserve(count);
+    std::vector<mbgl::LatLng> latLngs;
+    latLngs.reserve(count);
     for (NSUInteger i = 0; i < count; i++)
     {
-        segment.push_back({coordinates[i].latitude, coordinates[i].longitude});
+        latLngs.push_back({coordinates[i].latitude, coordinates[i].longitude});
     }
-    
-    mbgl::CameraOptions cameraOptions = _mbglMap->cameraForLatLngs(segment, padding);
+
+    mbgl::CameraOptions cameraOptions = _mbglMap->cameraForLatLngs(latLngs, padding);
     if (direction >= 0)
     {
         cameraOptions.angle = MGLRadiansFromDegrees(-direction);
     }
-    
+
     mbgl::AnimationOptions animationOptions;
     if (duration > 0)
     {
-        animationOptions.duration = MGLDurationInSeconds(duration);
-        animationOptions.easing = MGLUnitBezierForMediaTimingFunction(function);
+        animationOptions.duration.emplace(MGLDurationInSeconds(duration));
+        animationOptions.easing.emplace(MGLUnitBezierForMediaTimingFunction(function));
     }
     if (completion)
     {
@@ -2344,7 +2470,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         self.userTrackingMode = MGLUserTrackingModeFollow;
     }
-    
+
     [self _setDirection:direction animated:animated];
 }
 
@@ -2354,7 +2480,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     _mbglMap->cancelTransitions();
 
     CGFloat duration = animated ? MGLAnimationDuration : 0;
-    
+
     if (self.userTrackingMode == MGLUserTrackingModeNone)
     {
         _mbglMap->setBearing(direction,
@@ -2418,8 +2544,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     mbgl::AnimationOptions animationOptions;
     if (duration > 0)
     {
-        animationOptions.duration = MGLDurationInSeconds(duration);
-        animationOptions.easing = MGLUnitBezierForMediaTimingFunction(function);
+        animationOptions.duration.emplace(MGLDurationInSeconds(duration));
+        animationOptions.easing.emplace(MGLUnitBezierForMediaTimingFunction(function));
     }
     if (completion)
     {
@@ -2429,7 +2555,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             });
         };
     }
-    
+
     [self willChangeValueForKey:@"camera"];
     _mbglMap->easeTo(cameraOptions, animationOptions);
     [self didChangeValueForKey:@"camera"];
@@ -2448,7 +2574,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (void)flyToCamera:(MGLMapCamera *)camera withDuration:(NSTimeInterval)duration peakAltitude:(CLLocationDistance)peakAltitude completionHandler:(nullable void (^)(void))completion
 {
     self.userTrackingMode = MGLUserTrackingModeNone;
-    
+
     [self _flyToCamera:camera edgePadding:self.contentInset withDuration:duration peakAltitude:peakAltitude completionHandler:completion];
 }
 
@@ -2481,7 +2607,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             });
         };
     }
-    
+
     [self willChangeValueForKey:@"camera"];
     _mbglMap->flyTo(cameraOptions, animationOptions);
     [self didChangeValueForKey:@"camera"];
@@ -2504,7 +2630,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 {
     CLLocationCoordinate2D centerCoordinate = MGLLocationCoordinate2DFromLatLng(cameraOptions.center ? *cameraOptions.center : _mbglMap->getLatLng());
     double zoomLevel = cameraOptions.zoom ? *cameraOptions.zoom : self.zoomLevel;
-    CLLocationDirection direction = cameraOptions.angle ? -MGLDegreesFromRadians(*cameraOptions.angle) : self.direction;
+    CLLocationDirection direction = cameraOptions.angle ? mbgl::util::wrap(-MGLDegreesFromRadians(*cameraOptions.angle), 0., 360.) : self.direction;
     CGFloat pitch = cameraOptions.pitch ? MGLDegreesFromRadians(*cameraOptions.pitch) : _mbglMap->getPitch();
     CLLocationDistance altitude = MGLAltitudeForZoomLevel(zoomLevel, pitch, centerCoordinate.latitude, self.frame.size);
     return [MGLMapCamera cameraLookingAtCenterCoordinate:centerCoordinate fromDistance:altitude pitch:pitch heading:direction];
@@ -2585,7 +2711,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     bounds.extend([self convertPoint:{ CGRectGetMaxX(rect), CGRectGetMinY(rect) } toLatLngFromView:view]);
     bounds.extend([self convertPoint:{ CGRectGetMaxX(rect), CGRectGetMaxY(rect) } toLatLngFromView:view]);
     bounds.extend([self convertPoint:{ CGRectGetMinX(rect), CGRectGetMaxY(rect) } toLatLngFromView:view]);
-    
+
     // The world is wrapping if a point just outside the bounds is also within
     // the rect.
     mbgl::LatLng outsideLatLng;
@@ -2603,14 +2729,14 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             bounds.east() + 1,
         };
     }
-    
+
     // If the world is wrapping, extend the bounds to cover all longitudes.
     if (CGRectContainsPoint(rect, [self convertLatLng:outsideLatLng toPointToView:view]))
     {
         bounds.extend(mbgl::LatLng(bounds.south(), -180));
         bounds.extend(mbgl::LatLng(bounds.south(),  180));
     }
-    
+
     return bounds;
 }
 
@@ -2660,16 +2786,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (NS_ARRAY_OF(NSString *) *)styleClasses
 {
-    NSMutableArray *returnArray = [NSMutableArray array];
-
-    const std::vector<std::string> &appliedClasses = _mbglMap->getClasses();
-
-    for (auto class_it = appliedClasses.begin(); class_it != appliedClasses.end(); class_it++)
-    {
-        [returnArray addObject:@(class_it->c_str())];
-    }
-
-    return returnArray;
+    return [self.style styleClasses];
 }
 
 - (void)setStyleClasses:(NS_ARRAY_OF(NSString *) *)appliedClasses
@@ -2679,36 +2796,22 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
 - (void)setStyleClasses:(NS_ARRAY_OF(NSString *) *)appliedClasses transitionDuration:(NSTimeInterval)transitionDuration
 {
-    std::vector<std::string> newAppliedClasses;
-
-    for (NSString *appliedClass in appliedClasses)
-    {
-        newAppliedClasses.insert(newAppliedClasses.end(), [appliedClass UTF8String]);
-    }
-
-    mbgl::PropertyTransition transition { { MGLDurationInSeconds(transitionDuration) } };
-    _mbglMap->setClasses(newAppliedClasses, transition);
+    [self.style setStyleClasses:appliedClasses transitionDuration:transitionDuration];
 }
 
 - (BOOL)hasStyleClass:(NSString *)styleClass
 {
-    return styleClass && _mbglMap->hasClass([styleClass UTF8String]);
+    return [self.style hasStyleClass:styleClass];
 }
 
 - (void)addStyleClass:(NSString *)styleClass
 {
-    if (styleClass)
-    {
-        _mbglMap->addClass([styleClass UTF8String]);
-    }
+    [self.style addStyleClass:styleClass];
 }
 
 - (void)removeStyleClass:(NSString *)styleClass
 {
-    if (styleClass)
-    {
-        _mbglMap->removeClass([styleClass UTF8String]);
-    }
+    [self.style removeStyleClass:styleClass];
 }
 
 #pragma mark - Annotations -
@@ -2719,7 +2822,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return nil;
     }
-    
+
     // Map all the annotation tags to the annotations themselves.
     std::vector<id <MGLAnnotation>> annotations;
     std::transform(_annotationContextsByAnnotationTag.begin(),
@@ -2729,12 +2832,45 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return pair.second.annotation;
     });
-    
+
     annotations.erase(std::remove_if(annotations.begin(), annotations.end(),
                                      [](const id <MGLAnnotation> annotation) { return annotation == nullptr; }),
                       annotations.end());
-    
+
     return [NSArray arrayWithObjects:&annotations[0] count:annotations.size()];
+}
+
+- (nullable NS_ARRAY_OF(id <MGLAnnotation>) *)visibleAnnotations
+{
+    return [self visibleAnnotationsInRect:self.bounds];
+}
+
+- (nullable NS_ARRAY_OF(id <MGLAnnotation>) *)visibleAnnotationsInRect:(CGRect)rect
+{
+    if (_annotationContextsByAnnotationTag.empty())
+    {
+        return nil;
+    }
+    
+    std::vector<MGLAnnotationTag> annotationTags = [self annotationTagsInRect:rect];
+    if (annotationTags.size())
+    {
+        NSMutableArray *annotations = [NSMutableArray arrayWithCapacity:annotationTags.size()];
+        
+        for (auto const& annotationTag: annotationTags)
+        {
+            if (!_annotationContextsByAnnotationTag.count(annotationTag))
+            {
+                continue;
+            }
+            MGLAnnotationContext annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
+            [annotations addObject:annotationContext.annotation];
+        }
+        
+        return [annotations copy];
+    }
+    
+    return nil;
 }
 
 /// Returns the annotation assigned the given tag. Cheap.
@@ -2744,7 +2880,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return nil;
     }
-    
+
     MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag[tag];
     return annotationContext.annotation;
 }
@@ -2752,19 +2888,13 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 /// Returns the annotation tag assigned to the given annotation. Relatively expensive.
 - (MGLAnnotationTag)annotationTagForAnnotation:(id <MGLAnnotation>)annotation
 {
-    if ( ! annotation || annotation == self.userLocation)
+    if ( ! annotation || annotation == self.userLocation
+        || _annotationTagsByAnnotation.count(annotation) == 0)
     {
         return MGLAnnotationTagNotFound;
     }
     
-    for (auto &pair : _annotationContextsByAnnotationTag)
-    {
-        if (pair.second.annotation == annotation)
-        {
-            return pair.first;
-        }
-    }
-    return MGLAnnotationTagNotFound;
+    return  _annotationTagsByAnnotation.at(annotation);
 }
 
 - (void)addAnnotation:(id <MGLAnnotation>)annotation
@@ -2782,43 +2912,73 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     if ( ! annotations) return;
     [self willChangeValueForKey:@"annotations"];
 
-    std::vector<mbgl::PointAnnotation> points;
-    std::vector<mbgl::ShapeAnnotation> shapes;
-    
     NSMutableDictionary *annotationImagesForAnnotation = [NSMutableDictionary dictionary];
     NSMutableDictionary *annotationViewsForAnnotation = [NSMutableDictionary dictionary];
 
     BOOL delegateImplementsViewForAnnotation = [self.delegate respondsToSelector:@selector(mapView:viewForAnnotation:)];
     BOOL delegateImplementsImageForPoint = [self.delegate respondsToSelector:@selector(mapView:imageForAnnotation:)];
 
+    NSMutableArray *newAnnotationViews = [[NSMutableArray alloc] initWithCapacity:annotations.count];
+
     for (id <MGLAnnotation> annotation in annotations)
     {
         NSAssert([annotation conformsToProtocol:@protocol(MGLAnnotation)], @"annotation should conform to MGLAnnotation");
 
+        // adding the same annotation object twice is a no-op
+        if ([self.annotations containsObject:annotation])
+        {
+            continue;
+        }
+
         if ([annotation isKindOfClass:[MGLMultiPoint class]])
         {
-            [(MGLMultiPoint *)annotation addShapeAnnotationObjectToCollection:shapes withDelegate:self];
+            // The polyline or polygon knows how to style itself (with the map view’s help).
+            MGLMultiPoint *multiPoint = (MGLMultiPoint *)annotation;
+            if (!multiPoint.pointCount) {
+                continue;
+            }
+
+            _isChangingAnnotationLayers = YES;
+            MGLAnnotationTag annotationTag = _mbglMap->addAnnotation([multiPoint annotationObjectWithDelegate:self]);
+            MGLAnnotationContext context;
+            context.annotation = annotation;
+            _annotationContextsByAnnotationTag[annotationTag] = context;
+            _annotationTagsByAnnotation[annotation] = annotationTag;
+
+            [(NSObject *)annotation addObserver:self forKeyPath:@"coordinates" options:0 context:(void *)(NSUInteger)annotationTag];
         }
-        else
+        else if ( ! [annotation isKindOfClass:[MGLMultiPolyline class]]
+                 && ![annotation isKindOfClass:[MGLMultiPolygon class]]
+                 && ![annotation isKindOfClass:[MGLShapeCollection class]]
+                 && ![annotation isKindOfClass:[MGLPointCollection class]])
         {
             MGLAnnotationView *annotationView;
             NSString *symbolName;
             NSValue *annotationValue = [NSValue valueWithNonretainedObject:annotation];
-            
+
             if (delegateImplementsViewForAnnotation)
             {
                 annotationView = [self annotationViewForAnnotation:annotation];
                 if (annotationView)
                 {
                     annotationViewsForAnnotation[annotationValue] = annotationView;
+                    annotationView.annotation = annotation;
                     annotationView.center = [self convertCoordinate:annotation.coordinate toPointToView:self];
-                    [self.glView addSubview:annotationView];
+                    [newAnnotationViews addObject:annotationView];
+
+                    MGLAnnotationImage *annotationImage = self.invisibleAnnotationImage;
+                    symbolName = annotationImage.styleIconIdentifier;
+                    annotationImagesForAnnotation[annotationValue] = annotationImage;
+                    if ( ! self.annotationImagesByIdentifier[annotationImage.reuseIdentifier])
+                    {
+                        [self installAnnotationImage:annotationImage];
+                    }
                 }
             }
-            
+
             if ( ! annotationView) {
                 MGLAnnotationImage *annotationImage;
-                
+
                 if (delegateImplementsImageForPoint)
                 {
                     annotationImage = [self.delegate mapView:self imageForAnnotation:annotation];
@@ -2831,9 +2991,9 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                 {
                     annotationImage = self.defaultAnnotationImage;
                 }
-                
+
                 symbolName = annotationImage.styleIconIdentifier;
-                
+
                 if ( ! symbolName)
                 {
                     symbolName = [MGLAnnotationSpritePrefix stringByAppendingString:annotationImage.reuseIdentifier];
@@ -2843,40 +3003,28 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                 {
                     [self installAnnotationImage:annotationImage];
                 }
-               
+
                 annotationImagesForAnnotation[annotationValue] = annotationImage;
             }
 
-            points.emplace_back(MGLLatLngFromLocationCoordinate2D(annotation.coordinate), symbolName.UTF8String ?: "");
-        }
-    }
+            MGLAnnotationTag annotationTag = _mbglMap->addAnnotation(mbgl::SymbolAnnotation {
+                MGLPointFromLocationCoordinate2D(annotation.coordinate),
+                symbolName.UTF8String
+            });
 
-    if (points.size())
-    {
-        // refactor this to build contexts above and just associate with tags here
-        
-        std::vector<MGLAnnotationTag> annotationTags = _mbglMap->addPointAnnotations(points);
-        
-        for (size_t i = 0; i < annotationTags.size(); ++i)
-        {
-            id<MGLAnnotation> annotation = annotations[i];
-            NSValue *annotationValue = [NSValue valueWithNonretainedObject:annotation];
-            
             MGLAnnotationContext context;
             context.annotation = annotation;
             MGLAnnotationImage *annotationImage = annotationImagesForAnnotation[annotationValue];
+            context.imageReuseIdentifier = annotationImage.reuseIdentifier;
 
-            if (annotationImage) {
-                context.imageReuseIdentifier = annotationImage.reuseIdentifier;
-            }
-            MGLAnnotationView *annotationView = annotationViewsForAnnotation[annotationValue];
             if (annotationView) {
                 context.annotationView = annotationView;
                 context.viewReuseIdentifier = annotationView.reuseIdentifier;
             }
-            
-            MGLAnnotationTag annotationTag = annotationTags[i];
+
+            _annotationTagsByAnnotation[annotation] = annotationTag;
             _annotationContextsByAnnotationTag[annotationTag] = context;
+
             if ([annotation isKindOfClass:[NSObject class]]) {
                 NSAssert(![annotation isKindOfClass:[MGLMultiPoint class]], @"Point annotation should not be MGLMultiPoint.");
                 [(NSObject *)annotation addObserver:self forKeyPath:@"coordinate" options:0 context:(void *)(NSUInteger)annotationTag];
@@ -2884,23 +3032,42 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         }
     }
 
-    if (shapes.size())
-    {
-        std::vector<MGLAnnotationTag> annotationTags = _mbglMap->addShapeAnnotations(shapes);
-        
-        for (size_t i = 0; i < annotationTags.size(); ++i)
-        {
-            MGLAnnotationTag annotationTag = annotationTags[i];
-            id <MGLAnnotation> annotation = annotations[i];
-            
-            MGLAnnotationContext context;
-            context.annotation = annotation;
-            _annotationContextsByAnnotationTag[annotationTag] = context;
-        }
-    }
-    
+    [self updateAnnotationContainerViewWithAnnotationViews:newAnnotationViews];
+
     [self didChangeValueForKey:@"annotations"];
+    if (_isChangingAnnotationLayers)
+    {
+        [self.style willChangeValueForKey:@"layers"];
+    }
+
+    if ([self.delegate respondsToSelector:@selector(mapView:didAddAnnotationViews:)])
+    {
+        [self.delegate mapView:self didAddAnnotationViews:newAnnotationViews];
+    }
+
     UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, nil);
+}
+
+- (void)updateAnnotationContainerViewWithAnnotationViews:(NS_ARRAY_OF(MGLAnnotationView *) *)annotationViews
+{
+    if (annotationViews.count == 0) return;
+
+    MGLAnnotationContainerView *newAnnotationContainerView;
+    if (self.annotationContainerView)
+    {
+        // reload any previously added views
+        newAnnotationContainerView = [MGLAnnotationContainerView annotationContainerViewWithAnnotationContainerView:self.annotationContainerView];
+        [self.annotationContainerView removeFromSuperview];
+    }
+    else
+    {
+        newAnnotationContainerView = [[MGLAnnotationContainerView alloc] initWithFrame:self.bounds];
+    }
+    newAnnotationContainerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    newAnnotationContainerView.contentMode = UIViewContentModeCenter;
+    [newAnnotationContainerView addSubviews:annotationViews];
+    [_glView insertSubview:newAnnotationContainerView atIndex:0];
+    self.annotationContainerView = newAnnotationContainerView;
 }
 
 /// Initialize and return a default annotation image that depicts a round pin
@@ -2917,18 +3084,55 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     return annotationImage;
 }
 
+- (MGLAnnotationImage *)invisibleAnnotationImage
+{
+    MGLAnnotationImage *annotationImage = [self dequeueReusableAnnotationImageWithIdentifier:MGLInvisibleStyleMarkerSymbolName];
+
+    if (!annotationImage)
+    {
+        UIGraphicsBeginImageContext(CGSizeMake(1, 1));
+        UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        annotationImage = [MGLAnnotationImage annotationImageWithImage:image
+                                                                           reuseIdentifier:MGLInvisibleStyleMarkerSymbolName];
+        annotationImage.styleIconIdentifier = [MGLAnnotationSpritePrefix stringByAppendingString:annotationImage.reuseIdentifier];
+    }
+
+    return annotationImage;
+}
+
 - (MGLAnnotationView *)annotationViewForAnnotation:(id<MGLAnnotation>)annotation
 {
     MGLAnnotationView *annotationView = [self.delegate mapView:self viewForAnnotation:annotation];
-    
+
     if (annotationView)
     {
         annotationView.annotation = annotation;
+        annotationView.mapView = self;
         CGRect bounds = UIEdgeInsetsInsetRect({ CGPointZero, annotationView.frame.size }, annotationView.alignmentRectInsets);
-        _largestAnnotationViewSize = CGSizeMake(bounds.size.width / 2.0, bounds.size.height / 2.0);
+
+        _largestAnnotationViewSize = CGSizeMake(MAX(_largestAnnotationViewSize.width, CGRectGetWidth(bounds)),
+                                                MAX(_largestAnnotationViewSize.height, CGRectGetHeight(bounds)));
+
+        _unionedAnnotationRepresentationSize = CGSizeMake(MAX(_unionedAnnotationRepresentationSize.width, _largestAnnotationViewSize.width),
+                                                          MAX(_unionedAnnotationRepresentationSize.height, _largestAnnotationViewSize.height));
     }
-    
+
     return annotationView;
+}
+
+- (nullable MGLAnnotationView *)viewForAnnotation:(id<MGLAnnotation>)annotation
+{
+    if (annotation == self.userLocation)
+    {
+        return self.userLocationAnnotationView;
+    }
+    MGLAnnotationTag annotationTag = [self annotationTagForAnnotation:annotation];
+    if (annotationTag == MGLAnnotationTagNotFound) {
+        return nil;
+    }
+    MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
+    return annotationContext.annotationView;
 }
 
 - (double)alphaForShapeAnnotation:(MGLShape *)annotation
@@ -2945,7 +3149,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     UIColor *color = (_delegateHasStrokeColorsForShapeAnnotations
                       ? [self.delegate mapView:self strokeColorForShapeAnnotation:annotation]
                       : self.tintColor);
-    return MGLColorObjectFromUIColor(color);
+    return color.mgl_color;
 }
 
 - (mbgl::Color)fillColorForPolygonAnnotation:(MGLPolygon *)annotation
@@ -2953,7 +3157,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     UIColor *color = (_delegateHasFillColorsForShapeAnnotations
                       ? [self.delegate mapView:self fillColorForPolygonAnnotation:annotation]
                       : self.tintColor);
-    return MGLColorObjectFromUIColor(color);
+    return color.mgl_color;
 }
 
 - (CGFloat)lineWidthForPolylineAnnotation:(MGLPolyline *)annotation
@@ -2970,36 +3174,18 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     NSString *iconIdentifier = annotationImage.styleIconIdentifier;
     self.annotationImagesByIdentifier[annotationImage.reuseIdentifier] = annotationImage;
     annotationImage.delegate = self;
-    
-    // retrieve pixels
-    CGImageRef image = annotationImage.image.CGImage;
-    size_t width = CGImageGetWidth(image);
-    size_t height = CGImageGetHeight(image);
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    mbgl::PremultipliedImage cPremultipliedImage(width, height);
-    size_t bytesPerPixel = 4;
-    size_t bytesPerRow = bytesPerPixel * width;
-    size_t bitsPerComponent = 8;
-    CGContextRef context = CGBitmapContextCreate(cPremultipliedImage.data.get(), width, height, bitsPerComponent, bytesPerRow, colorSpace, kCGImageAlphaPremultipliedLast);
-    CGContextDrawImage(context, CGRectMake(0, 0, width, height), image);
-    CGContextRelease(context);
-    CGColorSpaceRelease(colorSpace);
 
     // add sprite
-    auto cSpriteImage = std::make_shared<mbgl::SpriteImage>(
-        std::move(cPremultipliedImage), 
-        float(annotationImage.image.scale));
+    std::shared_ptr<mbgl::SpriteImage> sprite(annotationImage.image.mgl_spriteImage);
+    _mbglMap->addAnnotationIcon(iconIdentifier.UTF8String, sprite);
 
-    // sprite upload
-    _mbglMap->addAnnotationIcon(iconIdentifier.UTF8String, cSpriteImage);
-    
     // Create a slop area with a “radius” equal in size to the annotation
     // image’s alignment rect, allowing the eventual tap to be on any point
     // within this image. Union this slop area with any existing slop areas.
     CGRect bounds = UIEdgeInsetsInsetRect({ CGPointZero, annotationImage.image.size },
                                           annotationImage.image.alignmentRectInsets);
-    _unionedAnnotationImageSize = CGSizeMake(MAX(_unionedAnnotationImageSize.width, bounds.size.width),
-                                             MAX(_unionedAnnotationImageSize.height, bounds.size.height));
+    _unionedAnnotationRepresentationSize = CGSizeMake(MAX(_unionedAnnotationRepresentationSize.width, bounds.size.width),
+                                                      MAX(_unionedAnnotationRepresentationSize.height, bounds.size.height));
 }
 
 - (void)removeAnnotation:(id <MGLAnnotation>)annotation
@@ -3017,8 +3203,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 {
     if ( ! annotations) return;
 
-    std::vector<MGLAnnotationTag> annotationTagsToRemove;
-    annotationTagsToRemove.reserve(annotations.count);
+    [self willChangeValueForKey:@"annotations"];
 
     for (id <MGLAnnotation> annotation in annotations)
     {
@@ -3032,29 +3217,45 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
         MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
         MGLAnnotationView *annotationView = annotationContext.annotationView;
+
+        if (annotationContext.viewReuseIdentifier)
+        {
+            NSMutableArray *annotationViewReuseQueue = [self annotationViewReuseQueueForIdentifier:annotationContext.viewReuseIdentifier];
+            if (![annotationViewReuseQueue containsObject:annotationView])
+            {
+                [annotationViewReuseQueue removeObject:annotationView];
+            }
+        }
+
+        annotationView.annotation = nil;
         [annotationView removeFromSuperview];
-        
-        annotationTagsToRemove.push_back(annotationTag);
 
         if (annotationTag == _selectedAnnotationTag)
         {
             [self deselectAnnotation:annotation animated:NO];
         }
-        
+
         _annotationContextsByAnnotationTag.erase(annotationTag);
-        
+        _annotationTagsByAnnotation.erase(annotation);
+
         if ([annotation isKindOfClass:[NSObject class]] && ![annotation isKindOfClass:[MGLMultiPoint class]])
         {
             [(NSObject *)annotation removeObserver:self forKeyPath:@"coordinate" context:(void *)(NSUInteger)annotationTag];
         }
+        else if ([annotation isKindOfClass:[MGLMultiPoint class]])
+        {
+            [(NSObject *)annotation removeObserver:self forKeyPath:@"coordinates" context:(void *)(NSUInteger)annotationTag];
+        }
+
+        _isChangingAnnotationLayers = YES;
+        _mbglMap->removeAnnotation(annotationTag);
     }
 
-    if ( ! annotationTagsToRemove.empty())
+    [self didChangeValueForKey:@"annotations"];
+    UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, nil);
+    if (_isChangingAnnotationLayers)
     {
-        [self willChangeValueForKey:@"annotations"];
-        _mbglMap->removeAnnotations(annotationTagsToRemove);
-        [self didChangeValueForKey:@"annotations"];
-        UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, nil);
+        [self.style willChangeValueForKey:@"layers"];
     }
 }
 
@@ -3103,27 +3304,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     MGLAnnotationView *reusableView = annotationViewReuseQueue.firstObject;
     [reusableView prepareForReuse];
     [annotationViewReuseQueue removeObject:reusableView];
-    
-    return reusableView;
-}
 
-- (MGLAnnotationView *)annotationViewAtPoint:(CGPoint)point
-{
-    std::vector<MGLAnnotationTag> annotationTags = [self annotationTagsInRect:self.bounds];
-    
-    for(auto const& annotationTag: annotationTags)
-    {
-        auto &annotationContext = _annotationContextsByAnnotationTag[annotationTag];
-        MGLAnnotationView *annotationView = annotationContext.annotationView;
-        CGPoint convertedPoint = [self convertPoint:point toView:annotationView];
-        
-        if ([annotationView pointInside:convertedPoint withEvent:nil])
-        {
-            return annotationView;
-        }
-    }
-    
-    return nil;
+    return reusableView;
 }
 
 - (MGLAnnotationView *)existentViewForAnnotation:(id <MGLAnnotation>)annotation {
@@ -3152,57 +3334,73 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 {
     // Look for any annotation near the tap. An annotation is “near” if the
     // distance between its center and the tap is less than the maximum height
-    // or width of an installed annotation image.
+    // or width of an installed annotation image or annotation view.
     CGRect queryRect = CGRectInset({ point, CGSizeZero },
-                                   -_unionedAnnotationImageSize.width,
-                                   -_unionedAnnotationImageSize.height);
+                                   -_unionedAnnotationRepresentationSize.width,
+                                   -_unionedAnnotationRepresentationSize.height);
     queryRect = CGRectInset(queryRect, -MGLAnnotationImagePaddingForHitTest,
                             -MGLAnnotationImagePaddingForHitTest);
     std::vector<MGLAnnotationTag> nearbyAnnotations = [self annotationTagsInRect:queryRect];
-    
+
     if (nearbyAnnotations.size())
     {
         // Assume that the user is fat-fingering an annotation.
         CGRect hitRect = CGRectInset({ point, CGSizeZero },
                                      -MGLAnnotationImagePaddingForHitTest,
                                      -MGLAnnotationImagePaddingForHitTest);
-        
-        MGLAnnotationImage *fallbackAnnotationImage = [self dequeueReusableAnnotationImageWithIdentifier:MGLDefaultStyleMarkerSymbolName];
-        UIImage *fallbackImage = fallbackAnnotationImage.image;
-        
-        // Filter out any annotation whose image is unselectable or for which
+
+        // Filter out any annotation whose image or view is unselectable or for which
         // hit testing fails.
         auto end = std::remove_if(nearbyAnnotations.begin(), nearbyAnnotations.end(),
                                   [&](const MGLAnnotationTag annotationTag)
         {
             id <MGLAnnotation> annotation = [self annotationWithTag:annotationTag];
             NSAssert(annotation, @"Unknown annotation found nearby tap");
-            
+
             MGLAnnotationContext annotationContext = _annotationContextsByAnnotationTag[annotationTag];
-            
-            MGLAnnotationImage *annotationImage = [self imageOfAnnotationWithTag:annotationTag];
-            if ( ! annotationImage.enabled)
+            CGRect annotationRect;
+
+            MGLAnnotationView *annotationView = annotationContext.annotationView;
+            if (annotationView)
             {
-                return true;
+                if ( ! annotationView.enabled)
+                {
+                    return true;
+                }
+
+                CGPoint calloutAnchorPoint = [self convertCoordinate:annotation.coordinate toPointToView:self];
+                CGRect frame = CGRectInset({ calloutAnchorPoint, CGSizeZero }, -CGRectGetWidth(annotationView.frame) / 2, -CGRectGetHeight(annotationView.frame) / 2);
+                annotationRect = UIEdgeInsetsInsetRect(frame, annotationView.alignmentRectInsets);
             }
-            
+            else
+            {
+                MGLAnnotationImage *annotationImage = [self imageOfAnnotationWithTag:annotationTag];
+                if ( ! annotationImage.enabled)
+                {
+                    return true;
+                }
+
+                MGLAnnotationImage *fallbackAnnotationImage = [self dequeueReusableAnnotationImageWithIdentifier:MGLDefaultStyleMarkerSymbolName];
+                UIImage *fallbackImage = fallbackAnnotationImage.image;
+
+                annotationRect = [self frameOfImage:annotationImage.image ?: fallbackImage centeredAtCoordinate:annotation.coordinate];
+            }
+
             // Filter out the annotation if the fattened finger didn’t land
             // within the image’s alignment rect.
-            CGRect annotationRect = [self frameOfImage:annotationImage.image ?: fallbackImage centeredAtCoordinate:annotation.coordinate];
-            
             return !!!CGRectIntersectsRect(annotationRect, hitRect);
         });
-        
+
         nearbyAnnotations.resize(std::distance(nearbyAnnotations.begin(), end));
     }
-    
+
     MGLAnnotationTag hitAnnotationTag = MGLAnnotationTagNotFound;
     if (nearbyAnnotations.size())
     {
         // The annotation tags need to be stable in order to compare them with
         // the remembered tags.
         std::sort(nearbyAnnotations.begin(), nearbyAnnotations.end());
-        
+
         if (nearbyAnnotations == _annotationsNearbyLastTap)
         {
             // The first selection in the cycle should be the one nearest to the
@@ -3217,7 +3415,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                                                  coordinateB.longitude - currentCoordinate.longitude);
                 return deltaA < deltaB;
             });
-            
+
             // The last time we persisted a set of annotations, we had the same
             // set of annotations as we do now. Cycle through them.
             if (_selectedAnnotationTag == MGLAnnotationTagNotFound
@@ -3255,7 +3453,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             {
                 _annotationsNearbyLastTap = nearbyAnnotations;
             }
-            
+
             // Choose the first nearby annotation.
             if (nearbyAnnotations.size())
             {
@@ -3263,15 +3461,17 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             }
         }
     }
-    
+
     return hitAnnotationTag;
 }
 
 /// Returns the tags of the annotations coincident with the given rectangle.
 - (std::vector<MGLAnnotationTag>)annotationTagsInRect:(CGRect)rect
 {
-    mbgl::LatLngBounds queryBounds = [self convertRect:rect toLatLngBoundsFromView:self];
-    return _mbglMap->getPointAnnotationsInBounds(queryBounds);
+    return _mbglMap->queryPointAnnotations({
+        { CGRectGetMinX(rect), CGRectGetMinY(rect) },
+        { CGRectGetMaxX(rect), CGRectGetMaxY(rect) },
+    });
 }
 
 - (id <MGLAnnotation>)selectedAnnotation
@@ -3333,7 +3533,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     }
 
     [self deselectAnnotation:self.selectedAnnotation animated:NO];
-    
+
     // Add the annotation to the map if it hasn’t been added yet.
     MGLAnnotationTag annotationTag = [self annotationTagForAnnotation:annotation];
     if (annotationTag == MGLAnnotationTagNotFound && annotation != self.userLocation)
@@ -3342,21 +3542,29 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         annotationTag = [self annotationTagForAnnotation:annotation];
         if (annotationTag == MGLAnnotationTagNotFound) return;
     }
-    
+
     // By default attempt to use the GL annotation image frame as the positioning rect.
     CGRect positioningRect = [self positioningRectForCalloutForAnnotationWithTag:annotationTag];
-    
+
+    MGLAnnotationView *annotationView = nil;
+
     if (annotation != self.userLocation)
     {
         MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
-        
-        if (annotationContext.annotationView)
+
+        annotationView = annotationContext.annotationView;
+
+        if (annotationView && annotationView.enabled)
         {
             // Annotations represented by views use the view frame as the positioning rect.
-            positioningRect = annotationContext.annotationView.frame;
+            positioningRect = annotationView.frame;
+
+            [annotationView.superview bringSubviewToFront:annotationView];
+
+            [annotationView setSelected:YES animated:animated];
         }
     }
-    
+
      // The client can request that any annotation be selected (even ones that are offscreen).
      // The annotation can’t be selected if no part of it is hittable.
     if ( ! CGRectIntersectsRect(positioningRect, self.bounds) && annotation != self.userLocation)
@@ -3386,7 +3594,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         if (_userLocationAnnotationIsSelected)
         {
             positioningRect = [self.userLocationAnnotationView.layer.presentationLayer frame];
-            
+
             CGRect implicitAnnotationFrame = [self.userLocationAnnotationView.layer.presentationLayer frame];
             CGRect explicitAnnotationFrame = self.userLocationAnnotationView.frame;
             _initialImplicitCalloutViewOffset = CGPointMake(CGRectGetMinX(explicitAnnotationFrame) - CGRectGetMinX(implicitAnnotationFrame),
@@ -3435,6 +3643,11 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         [self.delegate mapView:self didSelectAnnotation:annotation];
     }
+
+    if (annotationView && [self.delegate respondsToSelector:@selector(mapView:didSelectAnnotationView:)])
+    {
+        [self.delegate mapView:self didSelectAnnotationView:annotationView];
+    }
 }
 
 - (MGLCompactCalloutView *)calloutViewForAnnotation:(id <MGLAnnotation>)annotation
@@ -3452,7 +3665,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (CGRect)positioningRectForCalloutForAnnotationWithTag:(MGLAnnotationTag)annotationTag
 {
     MGLAnnotationContext annotationContext = _annotationContextsByAnnotationTag[annotationTag];
-    
+
     id <MGLAnnotation> annotation = [self annotationWithTag:annotationTag];
     if ( ! annotation)
     {
@@ -3467,10 +3680,10 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return CGRectZero;
     }
-    
+
     CGRect positioningRect = [self frameOfImage:image centeredAtCoordinate:annotation.coordinate];
     positioningRect.origin.x -= 0.5;
-    
+
     return CGRectInset(positioningRect, -MGLAnnotationImagePaddingForCallout,
                        -MGLAnnotationImagePaddingForCallout);
 }
@@ -3492,10 +3705,10 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return nil;
     }
-    
+
     NSString *customSymbol = _annotationContextsByAnnotationTag.at(annotationTag).imageReuseIdentifier;
     NSString *symbolName = customSymbol.length ? customSymbol : MGLDefaultStyleMarkerSymbolName;
-    
+
     return [self dequeueReusableAnnotationImageWithIdentifier:symbolName];
 }
 
@@ -3508,6 +3721,17 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         // dismiss popup
         [self.calloutViewForSelectedAnnotation dismissCalloutAnimated:animated];
 
+        // deselect annotation view
+        MGLAnnotationView *annotationView = nil;
+        MGLAnnotationTag annotationTag = [self annotationTagForAnnotation:annotation];
+
+        if (annotationTag != MGLAnnotationTagNotFound)
+        {
+            MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
+            annotationView = annotationContext.annotationView;
+            [annotationView setSelected:NO animated:animated];
+        }
+
         // clean up
         self.calloutViewForSelectedAnnotation = nil;
         self.selectedAnnotation = nil;
@@ -3516,6 +3740,11 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         if ([self.delegate respondsToSelector:@selector(mapView:didDeselectAnnotation:)])
         {
             [self.delegate mapView:self didDeselectAnnotation:annotation];
+        }
+
+        if (annotationView && [self.delegate respondsToSelector:@selector(mapView:didDeselectAnnotationView:)])
+        {
+            [self.delegate mapView:self didDeselectAnnotationView:annotationView];
         }
     }
 }
@@ -3527,7 +3756,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return;
     }
-    
+
     // The user location callout view initially points to the user location
     // annotation’s implicit (visual) frame, which is offset from the
     // annotation’s explicit frame. Now the callout view needs to rendezvous
@@ -3591,19 +3820,19 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     NSString *iconIdentifier = annotationImage.styleIconIdentifier;
     NSString *fallbackReuseIdentifier = MGLDefaultStyleMarkerSymbolName;
     NSString *fallbackIconIdentifier = [MGLAnnotationSpritePrefix stringByAppendingString:fallbackReuseIdentifier];
-    
+
     // Remove the old icon from the style.
     if ( ! [iconIdentifier isEqualToString:fallbackIconIdentifier]) {
         _mbglMap->removeAnnotationIcon(iconIdentifier.UTF8String);
     }
-    
+
     if (annotationImage.image)
     {
         // Add the new icon to the style.
         NSString *updatedIconIdentifier = [MGLAnnotationSpritePrefix stringByAppendingString:annotationImage.reuseIdentifier];
         annotationImage.styleIconIdentifier = updatedIconIdentifier;
         [self installAnnotationImage:annotationImage];
-        
+
         if ([iconIdentifier isEqualToString:fallbackIconIdentifier])
         {
             // Update any annotations associated with the annotation image.
@@ -3618,7 +3847,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         {
             [self installAnnotationImage:self.defaultAnnotationImage];
         }
-        
+
         // Update any annotations associated with the annotation image.
         [self applyIconIdentifier:fallbackIconIdentifier toAnnotationsWithImageReuseIdentifier:reuseIdentifier];
     }
@@ -3630,8 +3859,8 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         if ([pair.second.imageReuseIdentifier isEqualToString:reuseIdentifier])
         {
-            const mbgl::LatLng latLng = MGLLatLngFromLocationCoordinate2D(pair.second.annotation.coordinate);
-            _mbglMap->updatePointAnnotation(pair.first, { latLng, iconIdentifier.UTF8String ?: "" });
+            const mbgl::Point<double> point = MGLPointFromLocationCoordinate2D(pair.second.annotation.coordinate);
+            _mbglMap->updateAnnotation(pair.first, mbgl::SymbolAnnotation { point, iconIdentifier.UTF8String ?: "" });
         }
     }
 }
@@ -3698,7 +3927,28 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             [self.delegate mapViewWillStartLocatingUser:self];
         }
 
-        self.userLocationAnnotationView = [[MGLUserLocationAnnotationView alloc] initInMapView:self];
+        self.userLocation = [[MGLUserLocation alloc] initWithMapView:self];
+
+        MGLUserLocationAnnotationView *userLocationAnnotationView;
+
+        if ([self.delegate respondsToSelector:@selector(mapView:viewForAnnotation:)])
+        {
+            userLocationAnnotationView = (MGLUserLocationAnnotationView *)[self.delegate mapView:self viewForAnnotation:self.userLocation];
+            if (userLocationAnnotationView && ! [userLocationAnnotationView isKindOfClass:MGLUserLocationAnnotationView.class])
+            {
+                static dispatch_once_t onceToken;
+                dispatch_once(&onceToken, ^{
+                    NSLog(@"Ignoring user location annotation view with type %@. User location annotation view must be a kind of MGLUserLocationAnnotationView. This warning is only shown once and will become an error in a future version.", NSStringFromClass(userLocationAnnotationView.class));
+                });
+
+                userLocationAnnotationView = nil;
+            }
+        }
+
+        self.userLocationAnnotationView = userLocationAnnotationView ?: [[MGLFaux3DUserLocationAnnotationView alloc] init];
+        self.userLocationAnnotationView.mapView = self;
+        self.userLocationAnnotationView.userLocation = self.userLocation;
+
         self.userLocationAnnotationView.autoresizingMask = (UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin |
                                                             UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin);
 
@@ -3732,11 +3982,6 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 + (NS_SET_OF(NSString *) *)keyPathsForValuesAffectingUserLocation
 {
     return [NSSet setWithObject:@"userLocationAnnotationView"];
-}
-
-- (nullable MGLUserLocation *)userLocation
-{
-    return self.userLocationAnnotationView.annotation;
 }
 
 - (BOOL)isUserLocationVisible
@@ -3781,7 +4026,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         case MGLUserTrackingModeNone:
         {
             self.userTrackingState = MGLUserTrackingStatePossible;
-            
+
             [self.locationManager stopUpdatingHeading];
 
             // Immediately update the annotation view; other cases update inside
@@ -3798,9 +4043,10 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
             [self.locationManager stopUpdatingHeading];
 
-            if (self.userLocationAnnotationView)
+            CLLocation *location = self.userLocation.location;
+            if (location && self.userLocationAnnotationView)
             {
-                [self locationManager:self.locationManager didUpdateLocations:@[self.userLocation.location] animated:animated];
+                [self locationManager:self.locationManager didUpdateLocations:@[location] animated:animated];
             }
 
             break;
@@ -3811,7 +4057,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             {
                 self.userTrackingState = animated ? MGLUserTrackingStatePossible : MGLUserTrackingStateChanged;
             }
-            
+
             self.showsUserLocation = YES;
 
             if (self.zoomLevel < self.currentMinimumZoom)
@@ -3848,7 +4094,11 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     _userLocationVerticalAlignment = alignment;
     if (self.userTrackingMode != MGLUserTrackingModeNone)
     {
-        [self locationManager:self.locationManager didUpdateLocations:@[self.userLocation.location] animated:animated];
+        CLLocation *location = self.userLocation.location;
+        if (location)
+        {
+            [self locationManager:self.locationManager didUpdateLocations:@[location] animated:animated];
+        }
     }
 }
 
@@ -3902,16 +4152,13 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 
     [self didUpdateLocationWithUserTrackingAnimated:animated];
 
-    self.userLocationAnnotationView.haloLayer.hidden = ! CLLocationCoordinate2DIsValid(self.userLocation.coordinate) ||
-        newLocation.horizontalAccuracy > 10;
-
     NSTimeInterval duration = MGLAnimationDuration;
     if (oldLocation && ! CGPointEqualToPoint(self.userLocationAnnotationView.center, CGPointZero))
     {
         duration = MIN([newLocation.timestamp timeIntervalSinceDate:oldLocation.timestamp], MGLUserLocationAnimationDuration);
     }
     [self updateUserLocationAnnotationViewAnimatedWithDuration:duration];
-    
+
     if (self.userTrackingMode == MGLUserTrackingModeNone &&
         self.userLocationAnnotationView.accessibilityElementIsFocused &&
         [UIApplication sharedApplication].applicationState == UIApplicationStateActive)
@@ -3929,7 +4176,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return;
     }
-    
+
     // If the user location annotation is already where it’s supposed to be,
     // don’t change the viewport.
     CGPoint correctPoint = self.userLocationAnnotationViewCenter;
@@ -3939,7 +4186,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         return;
     }
-    
+
     if (self.userTrackingMode == MGLUserTrackingModeFollowWithCourse
         && CLLocationCoordinate2DIsValid(self.targetCoordinate))
     {
@@ -3980,7 +4227,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (void)didUpdateLocationSignificantlyAnimated:(BOOL)animated
 {
     self.userTrackingState = MGLUserTrackingStateBegan;
-    
+
     MGLMapCamera *camera = self.camera;
     camera.centerCoordinate = self.userLocation.location.coordinate;
     camera.heading = self.directionByFollowingWithCourse;
@@ -3991,7 +4238,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                                                   camera.centerCoordinate.latitude,
                                                   self.frame.size);
     }
-    
+
     __weak MGLMapView *weakSelf = self;
     [self _flyToCamera:camera
            edgePadding:self.edgePaddingForFollowing
@@ -4024,7 +4271,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             }
         };
     }
-    
+
     CLLocationCoordinate2D foci[] = {
         self.userLocation.location.coordinate,
         self.targetCoordinate,
@@ -4048,15 +4295,17 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 {
     // Center on user location unless we're already centered there (or very close).
     CGPoint correctPoint = self.userLocationAnnotationViewCenter;
-    
+
     // Shift the entire frame upward or downward to accommodate a shifted user
     // location annotation view.
     CGRect bounds = self.bounds;
     CGRect boundsAroundCorrectPoint = CGRectOffset(bounds,
                                                    correctPoint.x - CGRectGetMidX(bounds),
                                                    correctPoint.y - CGRectGetMidY(bounds));
-    return UIEdgeInsetsMake(CGRectGetMinY(boundsAroundCorrectPoint) - CGRectGetMinY(bounds), 0,
-                            CGRectGetMaxY(bounds) - CGRectGetMaxY(boundsAroundCorrectPoint), 0);
+    return UIEdgeInsetsMake(CGRectGetMinY(boundsAroundCorrectPoint) - CGRectGetMinY(bounds),
+                            self.contentInset.left,
+                            CGRectGetMaxY(bounds) - CGRectGetMaxY(boundsAroundCorrectPoint),
+                            self.contentInset.right);
 }
 
 /// Returns the edge padding to apply during bifocal course tracking.
@@ -4088,7 +4337,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         {
             direction = self.userLocation.location.course;
         }
-        
+
         if (direction >= 0)
         {
             if (self.userLocationVerticalAlignment == MGLAnnotationVerticalAlignmentTop)
@@ -4178,6 +4427,57 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     }
 }
 
+#pragma mark Data
+
+- (NS_ARRAY_OF(id <MGLFeature>) *)visibleFeaturesAtPoint:(CGPoint)point
+{
+    return [self visibleFeaturesAtPoint:point inStyleLayersWithIdentifiers:nil];
+}
+
+- (NS_ARRAY_OF(id <MGLFeature>) *)visibleFeaturesAtPoint:(CGPoint)point inStyleLayersWithIdentifiers:(NS_SET_OF(NSString *) *)styleLayerIdentifiers
+{
+    mbgl::ScreenCoordinate screenCoordinate = { point.x, point.y };
+
+    mbgl::optional<std::vector<std::string>> optionalLayerIDs;
+    if (styleLayerIdentifiers)
+    {
+        __block std::vector<std::string> layerIDs;
+        layerIDs.reserve(styleLayerIdentifiers.count);
+        [styleLayerIdentifiers enumerateObjectsUsingBlock:^(NSString * _Nonnull identifier, BOOL * _Nonnull stop)
+        {
+            layerIDs.push_back(identifier.UTF8String);
+        }];
+        optionalLayerIDs = layerIDs;
+    }
+
+    std::vector<mbgl::Feature> features = _mbglMap->queryRenderedFeatures(screenCoordinate, optionalLayerIDs);
+    return MGLFeaturesFromMBGLFeatures(features);
+}
+
+- (NS_ARRAY_OF(id <MGLFeature>) *)visibleFeaturesInRect:(CGRect)rect {
+    return [self visibleFeaturesInRect:rect inStyleLayersWithIdentifiers:nil];
+}
+
+- (NS_ARRAY_OF(id <MGLFeature>) *)visibleFeaturesInRect:(CGRect)rect inStyleLayersWithIdentifiers:(NS_SET_OF(NSString *) *)styleLayerIdentifiers {
+    mbgl::ScreenBox screenBox = {
+        { CGRectGetMinX(rect), CGRectGetMinY(rect) },
+        { CGRectGetMaxX(rect), CGRectGetMaxY(rect) },
+    };
+
+    mbgl::optional<std::vector<std::string>> optionalLayerIDs;
+    if (styleLayerIdentifiers) {
+        __block std::vector<std::string> layerIDs;
+        layerIDs.reserve(styleLayerIdentifiers.count);
+        [styleLayerIdentifiers enumerateObjectsUsingBlock:^(NSString * _Nonnull identifier, BOOL * _Nonnull stop) {
+            layerIDs.push_back(identifier.UTF8String);
+        }];
+        optionalLayerIDs = layerIDs;
+    }
+
+    std::vector<mbgl::Feature> features = _mbglMap->queryRenderedFeatures(screenBox, optionalLayerIDs);
+    return MGLFeaturesFromMBGLFeatures(features);
+}
+
 #pragma mark - Utility -
 
 - (void)animateWithDelay:(NSTimeInterval)delay animations:(void (^)(void))animations
@@ -4204,7 +4504,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         && state != UIGestureRecognizerStateChanged)
     {
         [self unrotateIfNeededAnimated:YES];
-        
+
         // Snap to north.
         if ((self.direction < MGLToleranceForSnappingToNorth
              || self.direction > 360 - MGLToleranceForSnappingToNorth)
@@ -4262,7 +4562,36 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
                 || self.userTrackingMode == MGLUserTrackingModeNone
                 || self.userTrackingState != MGLUserTrackingStateChanged)
             {
-                [self deselectAnnotation:self.selectedAnnotation animated:NO];
+                UIView<MGLCalloutView> *calloutView = self.calloutViewForSelectedAnnotation;
+                BOOL dismissesAutomatically = (calloutView
+                                               && [calloutView respondsToSelector:@selector(dismissesAutomatically)]
+                                               && calloutView.dismissesAutomatically);
+                // dismissesAutomatically is an optional property and we want to dismiss
+                // the callout view if it's unimplemented.
+                if (dismissesAutomatically || ![calloutView respondsToSelector:@selector(dismissesAutomatically)])
+                {
+                    [self deselectAnnotation:self.selectedAnnotation animated:NO];
+                }
+                else
+                {
+                    // Deselect annotation if it lies outside the viewport
+                    if (self.selectedAnnotation) {
+                        MGLAnnotationTag tag = [self annotationTagForAnnotation:self.selectedAnnotation];
+                        MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(tag);
+                        MGLAnnotationView *annotationView = annotationContext.annotationView;
+                        
+                        CGRect rect = [self positioningRectForCalloutForAnnotationWithTag:tag];
+                        
+                        if (annotationView)
+                        {
+                            rect = annotationView.frame;
+                        }
+                        
+                        if ( ! CGRectIntersectsRect(rect, self.frame)) {
+                            [self deselectAnnotation:self.selectedAnnotation animated:NO];
+                        }
+                    }
+                }
             }
 
             if ( ! [self isSuppressingChangeDelimiters] && [self.delegate respondsToSelector:@selector(mapView:regionWillChangeAnimated:)])
@@ -4308,6 +4637,10 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         }
         case mbgl::MapChangeDidFinishLoadingMap:
         {
+            [self.style willChangeValueForKey:@"sources"];
+            [self.style didChangeValueForKey:@"sources"];
+            [self.style willChangeValueForKey:@"layers"];
+            [self.style didChangeValueForKey:@"layers"];
             if ([self.delegate respondsToSelector:@selector(mapViewDidFinishLoadingMap:)])
             {
                 [self.delegate mapViewDidFinishLoadingMap:self];
@@ -4351,11 +4684,30 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         case mbgl::MapChangeDidFinishRenderingFrame:
         case mbgl::MapChangeDidFinishRenderingFrameFullyRendered:
         {
+            if (_isChangingAnnotationLayers)
+            {
+                _isChangingAnnotationLayers = NO;
+                [self.style didChangeValueForKey:@"layers"];
+            }
+            [self updateAnnotationViews];
+            [self updateCalloutView];
             if ([self.delegate respondsToSelector:@selector(mapViewDidFinishRenderingFrame:fullyRendered:)])
             {
                 [self.delegate mapViewDidFinishRenderingFrame:self fullyRendered:(change == mbgl::MapChangeDidFinishRenderingFrameFullyRendered)];
             }
-            [self updateAnnotationViews];
+            break;
+        }
+        case mbgl::MapChangeDidFinishLoadingStyle:
+        {
+            self.style = [[MGLStyle alloc] initWithMapView:self];
+            if ([self.delegate respondsToSelector:@selector(mapView:didFinishLoadingStyle:)])
+            {
+                [self.delegate mapView:self didFinishLoadingStyle:self.style];
+            }
+            break;
+        }
+        case mbgl::MapChangeSourceDidChange:
+        {
             break;
         }
     }
@@ -4369,46 +4721,137 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (void)updateAnnotationViews
 {
     BOOL delegateImplementsViewForAnnotation = [self.delegate respondsToSelector:@selector(mapView:viewForAnnotation:)];
-    
+
     if (!delegateImplementsViewForAnnotation)
     {
         return;
     }
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+
+    // If the map is pitched consider the viewport to be exactly the same as the bounds.
+    // Otherwise, add a small buffer.
+    CGFloat widthAdjustment = self.camera.pitch > 0.0 ? 0.0 : -_largestAnnotationViewSize.width * 2.0;
+    CGFloat heightAdjustment = self.camera.pitch > 0.0 ? 0.0 : -_largestAnnotationViewSize.height * 2.0;
+    CGRect viewPort = CGRectInset(self.bounds, widthAdjustment, heightAdjustment);
     
-    for (auto &pair : _annotationContextsByAnnotationTag)
+    NSArray *visibleAnnotations = [self visibleAnnotationsInRect:viewPort];
+    NSMutableArray *offscreenAnnotations = [self.annotations mutableCopy];
+    [offscreenAnnotations removeObjectsInArray:visibleAnnotations];
+    
+    // Update the center of visible annotation views
+    for (id<MGLAnnotation> annotation in visibleAnnotations)
     {
-        CGRect viewPort = CGRectInset(self.bounds, -_largestAnnotationViewSize.width - MGLAnnotationUpdateViewportOutset.width, -_largestAnnotationViewSize.height - MGLAnnotationUpdateViewportOutset.width);
-        
-        MGLAnnotationContext &annotationContext = pair.second;
+        // Defer to the shape/polygon styling delegate methods
+        if ([annotation isKindOfClass:[MGLMultiPoint class]])
+        {
+            continue;
+        }
+
+        // Get the annotation tag then use it to get the context.
+        MGLAnnotationTag annotationTag = [self annotationTagForAnnotation:annotation];
+        NSAssert(annotationTag != MGLAnnotationTagNotFound, @"-visibleAnnotationsInRect: returned unrecognized annotation");
+        MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
+
         MGLAnnotationView *annotationView = annotationContext.annotationView;
-       
         if (!annotationView)
         {
-            MGLAnnotationView *annotationView = [self annotationViewForAnnotation:annotationContext.annotation];
+            // This will dequeue views if the delegate implements the dequeue call
+            annotationView = [self annotationViewForAnnotation:annotationContext.annotation];
+
             if (annotationView)
             {
-                // If the annotation view has no superview it means it was never used before so add it
-                if (!annotationView.superview)
-                {
-                    [self.glView addSubview:annotationView];
-                }
-                
-                CGPoint center = [self convertCoordinate:annotationContext.annotation.coordinate toPointToView:self];
-                [annotationView setCenter:center pitch:self.camera.pitch];
-                
+                annotationView.mapView = self;
                 annotationContext.annotationView = annotationView;
+
+                // New annotation (created because there is nothing to dequeue) may not have been added to the
+                // container view yet. Add them here.
+                if (!annotationView.superview) {
+                    [self.annotationContainerView insertSubview:annotationView atIndex:0];
+                }
             }
         }
-        
-        bool annotationViewIsVisible = CGRectContainsRect(viewPort, annotationView.frame);
-        if (!annotationViewIsVisible)
+
+        if (annotationView)
         {
-            [self enqueueAnnotationViewForAnnotationContext:annotationContext];
+            annotationView.center = [self convertCoordinate:annotationContext.annotation.coordinate toPointToView:self];
         }
-        else
+    }
+
+    MGLCoordinateBounds coordinateBounds = [self convertRect:viewPort toCoordinateBoundsFromView:self];
+
+    // Enqueue (and move if required) offscreen annotation views
+    for (id<MGLAnnotation> annotation in offscreenAnnotations)
+    {
+        // Defer to the shape/polygon styling delegate methods
+        if ([annotation isKindOfClass:[MGLMultiPoint class]])
         {
-            CGPoint center = [self convertCoordinate:annotationContext.annotation.coordinate toPointToView:self];
-            [annotationView setCenter:center pitch:self.camera.pitch];
+            continue;
+        }
+
+        MGLAnnotationTag annotationTag = [self annotationTagForAnnotation:annotation];
+        NSAssert(annotationTag != MGLAnnotationTagNotFound, @"-visibleAnnotationsInRect: returned unrecognized annotation");
+        MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(annotationTag);
+        UIView *annotationView = annotationContext.annotationView;
+        
+        if (annotationView)
+        {
+            CLLocationCoordinate2D coordinate = annotation.coordinate;
+            // Every so often (1 out of 1000 frames?) the mbgl query mechanism fails. This logic spot checks the
+            // offscreenAnnotations values -- if they are actually still on screen then the view center is
+            // moved and the enqueue operation is avoided. This allows us to keep the performance benefit of
+            // using the mbgl query result. It also forces views that have just gone offscreen to be cleared
+            // fully from view.
+            if (MGLCoordinateInCoordinateBounds(coordinate, coordinateBounds))
+            {
+                annotationView.center = [self convertCoordinate:annotationContext.annotation.coordinate toPointToView:self];
+            }
+            else
+            {
+                CGRect adjustedFrame = annotationView.frame;
+                if (annotationView.layer.presentationLayer) {
+                    adjustedFrame.origin.x = -CGRectGetWidth(annotationView.layer.presentationLayer.frame) * 10.0;
+                } else {
+                    // views that are added off screen do not have a presentationLayer
+                    adjustedFrame.origin.x = -CGRectGetWidth(adjustedFrame) * 10.0;
+                }
+                annotationView.frame = adjustedFrame;
+                [self enqueueAnnotationViewForAnnotationContext:annotationContext];
+            }
+        }
+    }
+
+    [CATransaction commit];
+}
+
+- (void)updateCalloutView
+{
+    UIView <MGLCalloutView> *calloutView = self.calloutViewForSelectedAnnotation;
+    id <MGLAnnotation> annotation = calloutView.representedObject;
+    
+    BOOL isAnchoredToAnnotation = (calloutView
+                                   && annotation
+                                   && [calloutView respondsToSelector:@selector(isAnchoredToAnnotation)]
+                                   && calloutView.isAnchoredToAnnotation);
+    
+    if (isAnchoredToAnnotation)
+    {
+        MGLAnnotationTag tag = [self annotationTagForAnnotation:annotation];
+        MGLAnnotationContext &annotationContext = _annotationContextsByAnnotationTag.at(tag);
+        MGLAnnotationView *annotationView = annotationContext.annotationView;
+        
+        CGRect rect = [self positioningRectForCalloutForAnnotationWithTag:tag];
+        
+        if (annotationView)
+        {
+            rect = annotationView.frame;
+        }
+        
+        CGPoint point = CGPointMake(CGRectGetMidX(rect), CGRectGetMinY(rect));
+        
+        if ( ! CGPointEqualToPoint(calloutView.center, point)) {
+            calloutView.center = point;
         }
     }
 }
@@ -4416,11 +4859,12 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
 - (void)enqueueAnnotationViewForAnnotationContext:(MGLAnnotationContext &)annotationContext
 {
     MGLAnnotationView *annotationView = annotationContext.annotationView;
-    
+
     if (!annotationView) return;
-    
+
     if (annotationContext.viewReuseIdentifier)
     {
+        annotationView.annotation = nil;
         NSMutableArray *annotationViewReuseQueue = [self annotationViewReuseQueueForIdentifier:annotationContext.viewReuseIdentifier];
         if (![annotationViewReuseQueue containsObject:annotationView])
         {
@@ -4448,7 +4892,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         userPoint = [self convertCoordinate:self.userLocation.coordinate toPointToView:self];
     }
-    
+
     if ( ! annotationView.superview)
     {
         [self.glView addSubview:annotationView];
@@ -4477,10 +4921,10 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             annotationView.center = userPoint;
         } completion:NULL];
         _userLocationAnimationCompletionDate = [NSDate dateWithTimeIntervalSinceNow:duration];
-        
+
         annotationView.hidden = NO;
-        [annotationView setupLayers];
-        
+        [annotationView update];
+
         if (_userLocationAnnotationIsSelected)
         {
             // Ensure the callout view still points to its annotation.
@@ -4499,7 +4943,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         // User has moved far enough outside of the viewport that showing it or
         // its callout would be useless.
         annotationView.hidden = YES;
-        
+
         if (_userLocationAnnotationIsSelected)
         {
             [self deselectAnnotation:self.selectedAnnotation animated:YES];
@@ -4517,7 +4961,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         contentFrame = self.contentFrame;
     }
     CGPoint center = CGPointMake(CGRectGetMidX(contentFrame), CGRectGetMidY(contentFrame));
-    
+
     // When tracking course, it’s more important to see the road ahead, so
     // weight the user dot down towards the bottom.
     switch (self.userLocationVerticalAlignment) {
@@ -4530,7 +4974,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
             center.y = CGRectGetMaxY(contentFrame);
             break;
     }
-    
+
     return center;
 }
 
@@ -4539,7 +4983,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     CLLocationDirection direction = self.direction;
     CLLocationDirection plateDirection = mbgl::util::wrap(-direction, 0., 360.);
     self.compassView.transform = CGAffineTransformMakeRotation(MGLRadiansFromDegrees(plateDirection));
-    
+
     self.compassView.isAccessibilityElement = direction > 0;
     self.compassView.accessibilityValue = [_accessibilityCompassFormatter stringFromDirection:direction];
 
@@ -4579,7 +5023,7 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
         [NSException raise:@"Resource not found" format:
          @"The resource named “%@” could not be found in the Mapbox framework bundle.", imageName];
     }
-    
+
     return [UIImage imageWithContentsOfFile:path];
 }
 
@@ -4696,29 +5140,43 @@ mbgl::Duration MGLDurationInSeconds(NSTimeInterval duration)
     {
         _annotationViewReuseQueueByIdentifier[identifier] = [NSMutableArray array];
     }
-    
+
     return _annotationViewReuseQueueByIdentifier[identifier];
 }
 
-class MBGLView : public mbgl::View
+class MBGLView : public mbgl::View, public mbgl::Backend
 {
 public:
-    MBGLView(MGLMapView* nativeView_, const float scaleFactor_)
-        : nativeView(nativeView_), scaleFactor(scaleFactor_) {
+    MBGLView(MGLMapView* nativeView_)
+        : nativeView(nativeView_) {
     }
 
-    float getPixelRatio() const override {
-        return scaleFactor;
+    mbgl::gl::value::Viewport::Type getViewport() const {
+        return { 0, 0, static_cast<uint16_t>(nativeView.glView.drawableWidth),
+                 static_cast<uint16_t>(nativeView.glView.drawableHeight) };
     }
 
-    std::array<uint16_t, 2> getSize() const override {
-        return {{ static_cast<uint16_t>([nativeView bounds].size.width),
-                  static_cast<uint16_t>([nativeView bounds].size.height) }};
+    /// This function is called before we start rendering, when iOS invokes our rendering method.
+    /// iOS already sets the correct framebuffer and viewport for us, so we need to update the
+    /// context state with the anticipated values.
+    void updateViewBinding() {
+        // We are using 0 as the placeholder value for the GLKView's framebuffer.
+        getContext().bindFramebuffer.setCurrentValue(0);
+        getContext().viewport.setCurrentValue(getViewport());
     }
 
-    std::array<uint16_t, 2> getFramebufferSize() const override {
-        return {{ static_cast<uint16_t>([[nativeView glView] drawableWidth]),
-                  static_cast<uint16_t>([[nativeView glView] drawableHeight]) }};
+    void bind() override {
+        if (getContext().bindFramebuffer != 0) {
+            // Something modified our state, and we need to bind the original drawable again.
+            // Doing this also sets the viewport to the full framebuffer.
+            // Note that in reality, iOS does not use the Framebuffer 0 (it's typically 1), and we
+            // only use this is a placeholder value.
+            [nativeView.glView bindDrawable];
+            updateViewBinding();
+        } else {
+            // Our framebuffer is still bound, but the viewport might have changed.
+            getContext().viewport = getViewport();
+        }
     }
 
     void notifyMapChange(mbgl::MapChange change) override
@@ -4733,17 +5191,28 @@ public:
 
     void activate() override
     {
+        if (activationCount++)
+        {
+            return;
+        }
+
         [EAGLContext setCurrentContext:nativeView.context];
     }
 
     void deactivate() override
     {
+        if (--activationCount)
+        {
+            return;
+        }
+
         [EAGLContext setCurrentContext:nil];
     }
 
 private:
     __weak MGLMapView *nativeView = nullptr;
-    const float scaleFactor;
+
+    NSUInteger activationCount = 0;
 };
 
 @end
@@ -4885,79 +5354,6 @@ private:
 - (void)setAllowsTilting:(BOOL)allowsTilting
 {
     self.pitchEnabled = allowsTilting;
-}
-
-@end
-
-#pragma mark - MGLCustomStyleLayerAdditions methods
-
-class MGLCustomStyleLayerHandlers
-{
-public:
-    MGLCustomStyleLayerHandlers(MGLCustomStyleLayerPreparationHandler p,
-                                MGLCustomStyleLayerDrawingHandler d,
-                                MGLCustomStyleLayerCompletionHandler f)
-    : prepare(p), draw(d), finish(f) {}
-    
-    MGLCustomStyleLayerPreparationHandler prepare;
-    MGLCustomStyleLayerDrawingHandler draw;
-    MGLCustomStyleLayerCompletionHandler finish;
-};
-
-void MGLPrepareCustomStyleLayer(void *context)
-{
-    MGLCustomStyleLayerPreparationHandler prepare = reinterpret_cast<MGLCustomStyleLayerHandlers *>(context)->prepare;
-    if (prepare)
-    {
-        prepare();
-    }
-}
-
-void MGLDrawCustomStyleLayer(void *context, const mbgl::CustomLayerRenderParameters &params)
-{
-    CGSize size = CGSizeMake(params.width, params.height);
-    CLLocationCoordinate2D centerCoordinate = CLLocationCoordinate2DMake(params.latitude, params.longitude);
-    double zoomLevel = params.zoom;
-    CLLocationDirection direction = mbgl::util::wrap(params.bearing, 0., 360.);
-    CGFloat pitch = params.pitch;
-    CGFloat perspectiveSkew = params.altitude;
-    MGLCustomStyleLayerDrawingHandler draw = reinterpret_cast<MGLCustomStyleLayerHandlers *>(context)->draw;
-    if (draw)
-    {
-        draw(size, centerCoordinate, zoomLevel, direction, pitch, perspectiveSkew);
-    }
-}
-
-void MGLFinishCustomStyleLayer(void *context)
-{
-    MGLCustomStyleLayerHandlers *handlers = reinterpret_cast<MGLCustomStyleLayerHandlers *>(context);
-    MGLCustomStyleLayerCompletionHandler finish = handlers->finish;
-    if (finish)
-    {
-        finish();
-    }
-    delete handlers;
-}
-
-@implementation MGLMapView (MGLCustomStyleLayerAdditions)
-
-- (void)insertCustomStyleLayerWithIdentifier:(NSString *)identifier preparationHandler:(void (^)())preparation drawingHandler:(MGLCustomStyleLayerDrawingHandler)drawing completionHandler:(void (^)())completion belowStyleLayerWithIdentifier:(nullable NSString *)otherIdentifier
-{
-    NSAssert(identifier, @"Style layer needs an identifier");
-    MGLCustomStyleLayerHandlers *context = new MGLCustomStyleLayerHandlers(preparation, drawing, completion);
-    _mbglMap->addCustomLayer(identifier.UTF8String, MGLPrepareCustomStyleLayer,
-                             MGLDrawCustomStyleLayer, MGLFinishCustomStyleLayer,
-                             context, otherIdentifier.UTF8String);
-}
-
-- (void)removeCustomStyleLayerWithIdentifier:(NSString *)identifier
-{
-    _mbglMap->removeCustomLayer(identifier.UTF8String);
-}
-
-- (void)setCustomStyleLayersNeedDisplay
-{
-    _mbglMap->update(mbgl::Update::Repaint);
 }
 
 @end

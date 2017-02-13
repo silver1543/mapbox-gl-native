@@ -1,40 +1,45 @@
-#ifndef MBGL_RENDERER_DEBUGBUCKET
-#define MBGL_RENDERER_DEBUGBUCKET
+#pragma once
 
-#include <mbgl/tile/tile_data.hpp>
 #include <mbgl/map/mode.hpp>
-#include <mbgl/geometry/debug_font_buffer.hpp>
-#include <mbgl/geometry/vao.hpp>
 #include <mbgl/util/chrono.hpp>
+#include <mbgl/util/geometry.hpp>
+#include <mbgl/util/optional.hpp>
+#include <mbgl/util/noncopyable.hpp>
+#include <mbgl/gl/vertex_buffer.hpp>
+#include <mbgl/gl/vao.hpp>
+#include <mbgl/shader/fill_vertex.hpp>
 
 namespace mbgl {
 
-class PlainShader;
+class OverscaledTileID;
+class FillShader;
 
 namespace gl {
-class GLObjectStore;
-}
+class Context;
+} // namespace gl
 
 class DebugBucket : private util::noncopyable {
 public:
-    DebugBucket(const OverscaledTileID& id, TileData::State,
+    DebugBucket(const OverscaledTileID& id,
+                bool renderable,
+                bool complete,
                 optional<Timestamp> modified,
                 optional<Timestamp> expires,
-                MapDebugOptions);
+                MapDebugOptions,
+                gl::Context&);
 
-    void drawLines(PlainShader&, gl::GLObjectStore&);
-    void drawPoints(PlainShader&, gl::GLObjectStore&);
+    void drawLines(FillShader&, gl::Context&);
+    void drawPoints(FillShader&, gl::Context&);
 
-    const TileData::State state;
+    const bool renderable;
+    const bool complete;
     const optional<Timestamp> modified;
     const optional<Timestamp> expires;
     const MapDebugOptions debugMode;
 
 private:
-    DebugFontBuffer fontBuffer;
-    VertexArrayObject array;
+    gl::VertexBuffer<FillVertex> vertexBuffer;
+    gl::VertexArrayObject array;
 };
 
 } // namespace mbgl
-
-#endif

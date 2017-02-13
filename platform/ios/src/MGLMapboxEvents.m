@@ -35,6 +35,7 @@ NSString *const MGLEventKeyZoomLevel = @"zoom";
 NSString *const MGLEventKeySpeed = @"speed";
 NSString *const MGLEventKeyCourse = @"course";
 NSString *const MGLEventKeyGestureID = @"gesture";
+NSString *const MGLEventHorizontalAccuracy = @"horizontalAccuracy";
 NSString *const MGLEventKeyLocalDebugDescription = @"debug.description";
 
 static NSString *const MGLEventKeyEvent = @"event";
@@ -46,7 +47,6 @@ static NSString *const MGLEventKeyOperatingSystem = @"operatingSystem";
 static NSString *const MGLEventKeyResolution = @"resolution";
 static NSString *const MGLEventKeyAccessibilityFontScale = @"accessibilityFontScale";
 static NSString *const MGLEventKeyOrientation = @"orientation";
-static NSString *const MGLEventKeyBatteryLevel = @"batteryLevel";
 static NSString *const MGLEventKeyPluggedIn = @"pluggedIn";
 static NSString *const MGLEventKeyWifi = @"wifi";
 static NSString *const MGLEventKeySource = @"source";
@@ -123,12 +123,13 @@ const NSTimeInterval MGLFlushInterval = 180;
 @property (nonatomic) MGLLocationManager *locationManager;
 @property (nonatomic) NSTimer *timer;
 @property (nonatomic) NSDate *instanceIDRotationDate;
-@property (nonatomic) NSDate *turnstileSendDate;
+@property (nonatomic) NSDate *nextTurnstileSendDate;
 
 @end
 
 @implementation MGLMapboxEvents {
     NSString *_instanceID;
+    UIBackgroundTaskIdentifier _backgroundTaskIdentifier;
 }
 
 + (void)initialize {
@@ -147,10 +148,16 @@ const NSTimeInterval MGLFlushInterval = 180;
 #if TARGET_OS_SIMULATOR
     return NO;
 #else
+    BOOL isLowPowerModeEnabled = NO;
+    if ([NSProcessInfo instancesRespondToSelector:@selector(isLowPowerModeEnabled)]) {
+        isLowPowerModeEnabled = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
+    }
     return ([[NSUserDefaults standardUserDefaults] boolForKey:@"MGLMapboxMetricsEnabled"] &&
-            [[NSUserDefaults standardUserDefaults] integerForKey:@"MGLMapboxAccountType"] == 0);
+            [[NSUserDefaults standardUserDefaults] integerForKey:@"MGLMapboxAccountType"] == 0 &&
+            !isLowPowerModeEnabled);
 #endif
 }
+
 
 - (BOOL)debugLoggingEnabled {
     return (self.canEnableDebugLogging &&
@@ -183,9 +190,6 @@ const NSTimeInterval MGLFlushInterval = 180;
         // Clear Any System TimeZone Cache
         [NSTimeZone resetSystemTimeZone];
         [_rfc3339DateFormatter setTimeZone:[NSTimeZone systemTimeZone]];
-        
-        // Enable Battery Monitoring
-        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
 
         // Configure logging
         if ([self isProbablyAppStoreBuild]) {
@@ -202,7 +206,12 @@ const NSTimeInterval MGLFlushInterval = 180;
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(userDefaultsDidChange:) name:NSUserDefaultsDidChangeNotification object:nil];
        
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(pauseOrResumeMetricsCollectionIfRequired) name:UIApplicationDidEnterBackgroundNotification object:nil];
-        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(pauseOrResumeMetricsCollectionIfRequired) name:UIApplicationWillEnterForegroundNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(pauseOrResumeMetricsCollectionIfRequired) name:UIApplicationDidBecomeActiveNotification object:nil];
+
+        // Watch for Low Power Mode change events
+        if (&NSProcessInfoPowerStateDidChangeNotification != NULL) {
+            [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(pauseOrResumeMetricsCollectionIfRequired) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+        }
     }
     return self;
 }
@@ -246,19 +255,30 @@ const NSTimeInterval MGLFlushInterval = 180;
 }
 
 - (void)pauseOrResumeMetricsCollectionIfRequired {
+    UIApplication *application = [UIApplication sharedApplication];
+    
     // Prevent blue status bar when host app has `when in use` permission only and it is not in foreground
     if ([CLLocationManager authorizationStatus] == kCLAuthorizationStatusAuthorizedWhenInUse &&
-        [UIApplication sharedApplication].applicationState == UIApplicationStateBackground) {
+        application.applicationState == UIApplicationStateBackground) {
+        
+        if (_backgroundTaskIdentifier == UIBackgroundTaskInvalid) {
+            _backgroundTaskIdentifier = [application beginBackgroundTaskWithExpirationHandler:^{
+                [application endBackgroundTask:_backgroundTaskIdentifier];
+                _backgroundTaskIdentifier = UIBackgroundTaskInvalid;
+            }];
+            [self flush];
+        }
+        
         [self pauseMetricsCollection];
         return;
     }
     
-    // Toggle pause based on current pause state and current settings state
-    // Practically, a pause only occurs because of a change to an NSUserDefaultsDidChangeNotification
-    BOOL enabledInSettings = [[self class] isEnabled];
-    if (self.paused && enabledInSettings) {
+    // Toggle pause based on current pause state, user opt-out state, and low-power state.
+    BOOL enabled = [[self class] isEnabled];
+    if (self.paused && enabled) {
         [self resumeMetricsCollection];
-    } else if (!self.paused && !enabledInSettings) {
+    } else if (!self.paused && !enabled) {
+        [self flush];
         [self pauseMetricsCollection];
     }
 }
@@ -281,7 +301,7 @@ const NSTimeInterval MGLFlushInterval = 180;
     if (!self.paused || ![[self class] isEnabled]) {
         return;
     }
-    
+
     self.paused = NO;
     self.data = [[MGLMapboxEventsData alloc] init];
     
@@ -297,7 +317,10 @@ const NSTimeInterval MGLFlushInterval = 180;
         return;
     }
     
-    if ([self.eventQueue count] == 0) {
+    if ([self.eventQueue count] <= 1) {
+        [self.eventQueue removeAllObjects];
+        [[UIApplication sharedApplication] endBackgroundTask:_backgroundTaskIdentifier];
+        _backgroundTaskIdentifier = UIBackgroundTaskInvalid;
         return;
     }
     
@@ -315,7 +338,7 @@ const NSTimeInterval MGLFlushInterval = 180;
 }
 
 - (void)pushTurnstileEvent {
-    if (self.turnstileSendDate && [[NSDate date] timeIntervalSinceDate:self.turnstileSendDate] < 0) {
+    if (self.nextTurnstileSendDate && [[NSDate date] timeIntervalSinceDate:self.nextTurnstileSendDate] < 0) {
         return;
     }
     
@@ -342,9 +365,23 @@ const NSTimeInterval MGLFlushInterval = 180;
             return;
         }
         [strongSelf writeEventToLocalDebugLog:turnstileEventAttributes];
-        NSTimeInterval twentyFourHourTimeInterval = 24 * 3600;
-        strongSelf.turnstileSendDate = [[NSDate date] dateByAddingTimeInterval:twentyFourHourTimeInterval];
+        [strongSelf updateNextTurnstileSendDate];
     }];
+}
+
+- (void)updateNextTurnstileSendDate {
+    // Find the time a day from now (sometime tomorrow)
+    NSCalendar *calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+    NSDateComponents *dayComponent = [[NSDateComponents alloc] init];
+    dayComponent.day = 1;
+    NSDate *sometimeTomorrow = [calendar dateByAddingComponents:dayComponent toDate:[NSDate date] options:0];
+   
+    // Find the start of tomorrow and use that as the next turnstile send date. The effect of this is that
+    // turnstile events can be sent as much as once per calendar day and always at the start of a session
+    // when a map load happens.
+    NSDate *startOfTomorrow = nil;
+    [calendar rangeOfUnit:NSCalendarUnitDay startDate:&startOfTomorrow interval:nil forDate:sometimeTomorrow];
+    self.nextTurnstileSendDate = startOfTomorrow;
 }
 
 + (void)pushEvent:(NSString *)event withAttributes:(MGLMapboxEventAttributes *)attributeDictionary {
@@ -398,26 +435,31 @@ const NSTimeInterval MGLFlushInterval = 180;
 }
 
 - (MGLMapboxEventAttributes *)locationEventWithAttributes:(MGLMapboxEventAttributes *)attributeDictionary {
-    MGLMutableMapboxEventAttributes *attributes = [@{MGLEventKeyEvent: MGLEventTypeLocation,
-                                                     MGLEventKeySource: MGLEventSource,
-                                                     MGLEventKeySessionId: self.instanceID,
-                                                     MGLEventKeyOperatingSystem: self.data.iOSVersion} mutableCopy];
-    [self addApplicationStateToAttributes:attributes];
+    MGLMutableMapboxEventAttributes *attributes = [NSMutableDictionary dictionary];
+    attributes[MGLEventKeyEvent] = MGLEventTypeLocation;
+    attributes[MGLEventKeySource] = MGLEventSource;
+    attributes[MGLEventKeySessionId] = self.instanceID;
+    attributes[MGLEventKeyOperatingSystem] = self.data.iOSVersion;
+    NSString *currentApplicationState = [self applicationState];
+    if (![currentApplicationState isEqualToString:MGLApplicationStateUnknown]) {
+        attributes[MGLEventKeyApplicationState] = currentApplicationState;
+    }
+
     return [self eventForAttributes:attributes attributeDictionary:attributeDictionary];
 }
 
 - (MGLMapboxEventAttributes *)mapLoadEventWithAttributes:(MGLMapboxEventAttributes *)attributeDictionary {
-    MGLMutableMapboxEventAttributes *attributes = [@{MGLEventKeyEvent: MGLEventTypeMapLoad,
-                                                     MGLEventKeyCreated: [self.rfc3339DateFormatter stringFromDate:[NSDate date]],
-                                                     MGLEventKeyVendorID: self.data.vendorId,
-                                                     MGLEventKeyModel: self.data.model,
-                                                     MGLEventKeyOperatingSystem: self.data.iOSVersion,
-                                                     MGLEventKeyResolution: @(self.data.scale),
-                                                     MGLEventKeyAccessibilityFontScale: @([self contentSizeScale]),
-                                                     MGLEventKeyOrientation: [self deviceOrientation],
-                                                     MGLEventKeyBatteryLevel: @([self batteryLevel]),
-                                                     MGLEventKeyWifi: @([[MGLReachability reachabilityForLocalWiFi] isReachableViaWiFi])} mutableCopy];
-    [self addBatteryStateToAttributes:attributes];
+    MGLMutableMapboxEventAttributes *attributes = [NSMutableDictionary dictionary];
+    attributes[MGLEventKeyEvent] = MGLEventTypeMapLoad;
+    attributes[MGLEventKeyCreated] = [self.rfc3339DateFormatter stringFromDate:[NSDate date]];
+    attributes[MGLEventKeyVendorID] = self.data.vendorId;
+    attributes[MGLEventKeyModel] = self.data.model;
+    attributes[MGLEventKeyOperatingSystem] = self.data.iOSVersion;
+    attributes[MGLEventKeyResolution] = @(self.data.scale);
+    attributes[MGLEventKeyAccessibilityFontScale] = @([self contentSizeScale]);
+    attributes[MGLEventKeyOrientation] = [self deviceOrientation];
+    attributes[MGLEventKeyWifi] = @([[MGLReachability reachabilityForLocalWiFi] isReachableViaWiFi]);
+
     return [self eventForAttributes:attributes attributeDictionary:attributeDictionary];
 }
 
@@ -430,20 +472,22 @@ const NSTimeInterval MGLFlushInterval = 180;
 - (MGLMapboxEventAttributes *)mapDragEndEventWithAttributes:(MGLMapboxEventAttributes *)attributeDictionary {
     MGLMutableMapboxEventAttributes *attributes = [self interactionEvent];
     attributes[MGLEventKeyEvent] = MGLEventTypeMapDragEnd;
+
     return [self eventForAttributes:attributes attributeDictionary:attributeDictionary];
 }
 
 - (MGLMutableMapboxEventAttributes *)interactionEvent {
-    MGLMutableMapboxEventAttributes *attributes = [@{MGLEventKeyCreated: [self.rfc3339DateFormatter stringFromDate:[NSDate date]],
-                                                     MGLEventKeyOrientation: [self deviceOrientation],
-                                                     MGLEventKeyBatteryLevel: @([self batteryLevel]),
-                                                     MGLEventKeyWifi: @([[MGLReachability reachabilityForLocalWiFi] isReachableViaWiFi])} mutableCopy];
-    [self addBatteryStateToAttributes:attributes];
+    MGLMutableMapboxEventAttributes *attributes = [NSMutableDictionary dictionary];
+    attributes[MGLEventKeyCreated] = [self.rfc3339DateFormatter stringFromDate:[NSDate date]];
+    attributes[MGLEventKeyOrientation] = [self deviceOrientation];
+    attributes[MGLEventKeyWifi] = @([[MGLReachability reachabilityForLocalWiFi] isReachableViaWiFi]);
+
     return attributes;
 }
 
 - (MGLMapboxEventAttributes *)eventForAttributes:(MGLMutableMapboxEventAttributes *)attributes attributeDictionary:(MGLMapboxEventAttributes *)attributeDictionary {
     [attributes addEntriesFromDictionary:attributeDictionary];
+
     return [attributes copy];
 }
 
@@ -461,10 +505,12 @@ const NSTimeInterval MGLFlushInterval = 180;
             if (error) {
                 [strongSelf pushDebugEvent:MGLEventTypeLocalDebug withAttributes:@{MGLEventKeyLocalDebugDescription: @"Network error",
                                                                                         @"error": error}];
-                return;
+            } else {
+                [strongSelf pushDebugEvent:MGLEventTypeLocalDebug withAttributes:@{MGLEventKeyLocalDebugDescription: @"post",
+                                                                                   @"debug.eventsCount": @(events.count)}];
             }
-            [strongSelf pushDebugEvent:MGLEventTypeLocalDebug withAttributes:@{MGLEventKeyLocalDebugDescription: @"post",
-                                                                                    @"debug.eventsCount": @(events.count)}];
+            [[UIApplication sharedApplication] endBackgroundTask:_backgroundTaskIdentifier];
+            _backgroundTaskIdentifier = UIBackgroundTaskInvalid;
         }];
     });
 }
@@ -476,10 +522,6 @@ const NSTimeInterval MGLFlushInterval = 180;
                                                 selector:@selector(flush)
                                                 userInfo:nil
                                                  repeats:YES];
-}
-
-- (NSInteger)batteryLevel {
-    return [[NSNumber numberWithFloat:roundf(100 * [UIDevice currentDevice].batteryLevel)] integerValue];
 }
 
 - (NSString *)deviceOrientation {
@@ -562,29 +604,6 @@ const NSTimeInterval MGLFlushInterval = 180;
     return result;
 }
 
-- (void)addBatteryStateToAttributes:(MGLMutableMapboxEventAttributes *)attributes {
-    UIDeviceBatteryState batteryState = [[UIDevice currentDevice] batteryState];
-    switch (batteryState) {
-        case UIDeviceBatteryStateCharging:
-        case UIDeviceBatteryStateFull:
-            attributes[MGLEventKeyPluggedIn] = @(YES);
-            break;
-        case UIDeviceBatteryStateUnplugged:
-            attributes[MGLEventKeyPluggedIn] = @(NO);
-            break;
-        default:
-            // do nothing
-            break;
-    }
-}
-
-- (void)addApplicationStateToAttributes:(MGLMutableMapboxEventAttributes *)attributes {
-    NSString *currentApplicationState = [self applicationState];
-    if (![currentApplicationState isEqualToString:MGLApplicationStateUnknown]) {
-        attributes[MGLEventKeyApplicationState] = currentApplicationState;
-    }
-}
-
 + (void)ensureMetricsOptoutExists {
     NSNumber *shownInAppNumber = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"MGLMapboxMetricsEnabledSettingShownInApp"];
     BOOL metricsEnabledSettingShownInAppFlag = [shownInAppNumber boolValue];
@@ -624,11 +643,13 @@ const NSTimeInterval MGLFlushInterval = 180;
         double accuracy = 10000000;
         double lat = floor(loc.coordinate.latitude * accuracy) / accuracy;
         double lng = floor(loc.coordinate.longitude * accuracy) / accuracy;
+        double horizontalAccuracy = round(loc.horizontalAccuracy);
         NSString *formattedDate = [self.rfc3339DateFormatter stringFromDate:loc.timestamp];
         [MGLMapboxEvents pushEvent:MGLEventTypeLocation withAttributes:@{MGLEventKeyCreated: formattedDate,
                                                                          MGLEventKeyLatitude: @(lat),
                                                                          MGLEventKeyLongitude: @(lng),
-                                                                         MGLEventKeyAltitude: @(round(loc.altitude))}];
+                                                                         MGLEventKeyAltitude: @(round(loc.altitude)),
+                                                                         MGLEventHorizontalAccuracy: @(horizontalAccuracy)}];
     }
 }
 

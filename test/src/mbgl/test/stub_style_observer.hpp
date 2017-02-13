@@ -1,14 +1,14 @@
-#ifndef MBGL_TEST_STUB_STYLE_OBSERVER
-#define MBGL_TEST_STUB_STYLE_OBSERVER
+#pragma once
 
-#include <mbgl/style/style.hpp>
+#include <mbgl/style/observer.hpp>
 
-namespace mbgl {
+using namespace mbgl;
+using namespace mbgl::style;
 
 /**
- * An implementation of Style::Observer that forwards all methods to dynamically-settable lambas.
+ * An implementation of style::Observer that forwards all methods to dynamically-settable lambdas.
  */
-class StubStyleObserver : public Style::Observer {
+class StubStyleObserver : public style::Observer {
 public:
     void onGlyphsLoaded(const FontStack& fontStack, const GlyphRange& glyphRange) override {
         if (glyphsLoaded) glyphsLoaded(fontStack, glyphRange);
@@ -30,22 +30,26 @@ public:
         if (sourceLoaded) sourceLoaded(source);
     }
 
+    void onSourceAttributionChanged(Source& source, const std::string& attribution) override {
+        if (sourceAttributionChanged) sourceAttributionChanged(source, attribution);
+    }
+
     void onSourceError(Source& source, std::exception_ptr error) override {
         if (sourceError) sourceError(source, error);
     }
 
-    void onTileLoaded(Source& source, const OverscaledTileID& tileID, bool isNewTile) override {
-        if (tileLoaded) tileLoaded(source, tileID, isNewTile);
+    void onSourceDescriptionChanged(Source& source) override {
+        if (sourceDescriptionChanged) sourceDescriptionChanged(source);
     }
+
+    void onTileChanged(Source& source, const OverscaledTileID& tileID) override {
+        if (tileChanged) tileChanged(source, tileID);
+    };
 
     void
     onTileError(Source& source, const OverscaledTileID& tileID, std::exception_ptr error) override {
         if (tileError) tileError(source, tileID, error);
     }
-
-    void onResourceLoaded() override {
-        if (resourceLoaded) resourceLoaded();
-    };
 
     void onResourceError(std::exception_ptr error) override {
         if (resourceError) resourceError(error);
@@ -56,13 +60,10 @@ public:
     std::function<void ()> spriteLoaded;
     std::function<void (std::exception_ptr)> spriteError;
     std::function<void (Source&)> sourceLoaded;
+    std::function<void (Source&, std::string)> sourceAttributionChanged;
     std::function<void (Source&, std::exception_ptr)> sourceError;
-    std::function<void (Source&, const OverscaledTileID&, bool isNewTile)> tileLoaded;
+    std::function<void (Source&)> sourceDescriptionChanged;
+    std::function<void (Source&, const OverscaledTileID&)> tileChanged;
     std::function<void (Source&, const OverscaledTileID&, std::exception_ptr)> tileError;
-    std::function<void ()> resourceLoaded;
     std::function<void (std::exception_ptr)> resourceError;
 };
-
-} // namespace mbgl
-
-#endif

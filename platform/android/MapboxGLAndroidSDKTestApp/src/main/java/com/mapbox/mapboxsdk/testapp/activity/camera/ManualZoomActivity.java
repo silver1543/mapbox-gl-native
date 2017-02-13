@@ -12,17 +12,16 @@ import android.view.View;
 
 import com.mapbox.mapboxsdk.camera.CameraUpdateFactory;
 import com.mapbox.mapboxsdk.constants.Style;
+import com.mapbox.mapboxsdk.maps.MapView;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.mapboxsdk.maps.OnMapReadyCallback;
 import com.mapbox.mapboxsdk.maps.UiSettings;
 import com.mapbox.mapboxsdk.testapp.R;
-import com.mapbox.mapboxsdk.maps.MapView;
-import com.mapbox.mapboxsdk.testapp.model.constants.AppConstant;
 
 public class ManualZoomActivity extends AppCompatActivity {
 
-    private MapboxMap mMapboxMap;
-    private MapView mMapView;
+    private MapboxMap mapboxMap;
+    private MapView mapView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,15 +37,15 @@ public class ManualZoomActivity extends AppCompatActivity {
             actionBar.setDisplayShowHomeEnabled(true);
         }
 
-        mMapView = (MapView) findViewById(R.id.manualZoomMapView);
-        mMapView.setStyleUrl(Style.getSatelliteStyleUrl(AppConstant.STYLE_VERSION));
-        mMapView.onCreate(savedInstanceState);
-        mMapView.getMapAsync(new OnMapReadyCallback() {
+        mapView = (MapView) findViewById(R.id.mapView);
+        mapView.setStyleUrl(Style.SATELLITE);
+        mapView.onCreate(savedInstanceState);
+        mapView.getMapAsync(new OnMapReadyCallback() {
             @Override
             public void onMapReady(@NonNull final MapboxMap mapboxMap) {
-                mMapboxMap = mapboxMap;
+                ManualZoomActivity.this.mapboxMap = mapboxMap;
 
-                UiSettings uiSettings = mMapboxMap.getUiSettings();
+                UiSettings uiSettings = ManualZoomActivity.this.mapboxMap.getUiSettings();
                 uiSettings.setAllGesturesEnabled(false);
             }
         });
@@ -54,7 +53,6 @@ public class ManualZoomActivity extends AppCompatActivity {
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-//        findViewById(R.id.)
         getMenuInflater().inflate(R.menu.menu_zoom, menu);
         return true;
     }
@@ -68,23 +66,24 @@ public class ManualZoomActivity extends AppCompatActivity {
                 return true;
 
             case R.id.action_zoom_in:
-                mMapboxMap.animateCamera(CameraUpdateFactory.zoomIn());
+                mapboxMap.animateCamera(CameraUpdateFactory.zoomIn());
                 return true;
 
             case R.id.action_zoom_out:
-                mMapboxMap.animateCamera(CameraUpdateFactory.zoomOut());
+                mapboxMap.animateCamera(CameraUpdateFactory.zoomOut());
                 return true;
 
             case R.id.action_zoom_by:
-                mMapboxMap.animateCamera(CameraUpdateFactory.zoomBy(2));
+                mapboxMap.animateCamera(CameraUpdateFactory.zoomBy(2));
                 return true;
             case R.id.action_zoom_to:
-                mMapboxMap.animateCamera(CameraUpdateFactory.zoomTo(2));
+                mapboxMap.animateCamera(CameraUpdateFactory.zoomTo(2));
                 return true;
 
             case R.id.action_zoom_to_point:
                 View view = getWindow().getDecorView();
-                mMapboxMap.animateCamera(CameraUpdateFactory.zoomBy(1, new Point(view.getMeasuredWidth() / 4, view.getMeasuredHeight() / 4)));
+                mapboxMap.animateCamera(
+                    CameraUpdateFactory.zoomBy(1, new Point(view.getMeasuredWidth() / 4, view.getMeasuredHeight() / 4)));
                 return true;
 
             default:
@@ -95,30 +94,30 @@ public class ManualZoomActivity extends AppCompatActivity {
     @Override
     public void onResume() {
         super.onResume();
-        mMapView.onResume();
+        mapView.onResume();
     }
 
     @Override
     public void onPause() {
         super.onPause();
-        mMapView.onPause();
+        mapView.onPause();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        mMapView.onSaveInstanceState(outState);
+        mapView.onSaveInstanceState(outState);
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        mMapView.onDestroy();
+        mapView.onDestroy();
     }
 
     @Override
     public void onLowMemory() {
         super.onLowMemory();
-        mMapView.onLowMemory();
+        mapView.onLowMemory();
     }
 }

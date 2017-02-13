@@ -1,9 +1,9 @@
-#ifndef MBGL_STORAGE_RESOURCE
-#define MBGL_STORAGE_RESOURCE
+#pragma once
 
 #include <mbgl/storage/response.hpp>
 #include <mbgl/util/optional.hpp>
-#include <mbgl/style/types.hpp>
+#include <mbgl/util/font_stack.hpp>
+#include <mbgl/util/tileset.hpp>
 
 #include <string>
 
@@ -34,10 +34,10 @@ public:
         Required = true,
     };
 
-    Resource(Kind kind_, const std::string& url_, optional<TileData> tileData_ = {}, Necessity necessity_ = Required)
+    Resource(Kind kind_, std::string url_, optional<TileData> tileData_ = {}, Necessity necessity_ = Required)
         : kind(kind_),
           necessity(necessity_),
-          url(url_),
+          url(std::move(url_)),
           tileData(std::move(tileData_)) {
     }
 
@@ -48,6 +48,7 @@ public:
                          int32_t x,
                          int32_t y,
                          int8_t z,
+                         Tileset::Scheme scheme,
                          Necessity = Required);
     static Resource glyphs(const std::string& urlTemplate,
                            const FontStack& fontStack,
@@ -68,5 +69,3 @@ public:
 };
 
 } // namespace mbgl
-
-#endif

@@ -1,17 +1,13 @@
-#ifndef MBGL_MAP_MAP
-#define MBGL_MAP_MAP
+#pragma once
 
 #include <mbgl/util/optional.hpp>
 #include <mbgl/util/chrono.hpp>
-#include <mbgl/util/image.hpp>
-#include <mbgl/map/update.hpp>
 #include <mbgl/map/mode.hpp>
 #include <mbgl/util/geo.hpp>
 #include <mbgl/util/feature.hpp>
 #include <mbgl/util/noncopyable.hpp>
 #include <mbgl/annotation/annotation.hpp>
-#include <mbgl/style/types.hpp>
-#include <mbgl/style/property_transition.hpp>
+#include <mbgl/style/transition_options.hpp>
 
 #include <cstdint>
 #include <string>
@@ -21,17 +17,26 @@
 
 namespace mbgl {
 
-class FileSource;
+class Backend;
 class View;
+class FileSource;
+class Scheduler;
 class SpriteImage;
-class PointAnnotation;
-class ShapeAnnotation;
 struct CameraOptions;
 struct AnimationOptions;
 
+namespace style {
+class Source;
+class Layer;
+} // namespace style
+
 class Map : private util::noncopyable {
 public:
-    explicit Map(View&, FileSource&,
+    explicit Map(Backend&,
+                 std::array<uint16_t, 2> size,
+                 float pixelRatio,
+                 FileSource&,
+                 Scheduler&,
                  MapMode mapMode = MapMode::Continuous,
                  GLContextMode contextMode = GLContextMode::Unique,
                  ConstrainMode constrainMode = ConstrainMode::HeightOnly,
@@ -40,25 +45,28 @@ public:
 
     // Register a callback that will get called (on the render thread) when all resources have
     // been loaded and a complete render occurs.
-    using StillImageCallback = std::function<void (std::exception_ptr, PremultipliedImage&&)>;
-    void renderStill(StillImageCallback callback);
+    using StillImageCallback = std::function<void (std::exception_ptr)>;
+    void renderStill(View&, StillImageCallback callback);
+
+    // Triggers a repaint.
+    void triggerRepaint();
 
     // Main render function.
-    void render();
-
-    // Notifies the Map that the state has changed and an update might be necessary.
-    void update(Update update);
+    void render(View&);
 
     // Styling
-    void addClass(const std::string&, const PropertyTransition& = {});
-    void removeClass(const std::string&, const PropertyTransition& = {});
-    void setClasses(const std::vector<std::string>&, const PropertyTransition& = {});
+    void addClass(const std::string&);
+    void removeClass(const std::string&);
+    void setClasses(const std::vector<std::string>&);
+
+    style::TransitionOptions getTransitionOptions() const;
+    void setTransitionOptions(const style::TransitionOptions&);
 
     bool hasClass(const std::string&) const;
     std::vector<std::string> getClasses() const;
 
-    void setStyleURL(const std::string& url);
-    void setStyleJSON(const std::string& json, const std::string& base = "");
+    void setStyleURL(const std::string&);
+    void setStyleJSON(const std::string&);
     std::string getStyleURL() const;
     std::string getStyleJSON() const;
 
@@ -128,6 +136,7 @@ public:
     ViewportMode getViewportMode() const;
 
     // Size
+    void setSize(const std::array<uint16_t, 2>&);
     uint16_t getWidth() const;
     uint16_t getHeight() const;
 
@@ -143,30 +152,38 @@ public:
     void removeAnnotationIcon(const std::string&);
     double getTopOffsetPixelsForAnnotationIcon(const std::string&);
 
-    AnnotationID addPointAnnotation(const PointAnnotation&);
-    AnnotationIDs addPointAnnotations(const std::vector<PointAnnotation>&);
-
-    AnnotationID addShapeAnnotation(const ShapeAnnotation&);
-    AnnotationIDs addShapeAnnotations(const std::vector<ShapeAnnotation>&);
-
-    void updatePointAnnotation(AnnotationID, const PointAnnotation&);
-
+    AnnotationID addAnnotation(const Annotation&);
+    void updateAnnotation(AnnotationID, const Annotation&);
     void removeAnnotation(AnnotationID);
-    void removeAnnotations(const AnnotationIDs&);
 
-    AnnotationIDs getPointAnnotationsInBounds(const LatLngBounds&);
+    // Sources
+    std::vector<style::Source*> getSources();
+    style::Source* getSource(const std::string& sourceID);
+    void addSource(std::unique_ptr<style::Source>);
+    std::unique_ptr<style::Source> removeSource(const std::string& sourceID);
 
-    void addCustomLayer(const std::string& id,
-                        CustomLayerInitializeFunction,
-                        CustomLayerRenderFunction,
-                        CustomLayerDeinitializeFunction,
-                        void* context,
-                        const char* before = nullptr);
-    void removeCustomLayer(const std::string& id);
+    // Layers
+    std::vector<style::Layer*> getLayers();
+    style::Layer* getLayer(const std::string& layerID);
+    void addLayer(std::unique_ptr<style::Layer>, const optional<std::string>& beforeLayerID = {});
+    std::unique_ptr<style::Layer> removeLayer(const std::string& layerID);
+
+    // Add image, bound to the style
+    void addImage(const std::string&, std::unique_ptr<const SpriteImage>);
+    void removeImage(const std::string&);
+    const SpriteImage* getImage(const std::string&);
+
+    // Defaults
+    std::string getStyleName() const;
+    LatLng getDefaultLatLng() const;
+    double getDefaultZoom() const;
+    double getDefaultBearing() const;
+    double getDefaultPitch() const;
 
     // Feature queries
     std::vector<Feature> queryRenderedFeatures(const ScreenCoordinate&, const optional<std::vector<std::string>>& layerIDs = {});
     std::vector<Feature> queryRenderedFeatures(const ScreenBox&,        const optional<std::vector<std::string>>& layerIDs = {});
+    AnnotationIDs queryPointAnnotations(const ScreenBox&);
 
     // Memory
     void setSourceTileCacheSize(size_t);
@@ -186,5 +203,3 @@ private:
 };
 
 } // namespace mbgl
-
-#endif

@@ -1,16 +1,18 @@
 Pod::Spec.new do |m|
 
-  m.name    = 'Mapbox-iOS-SDK'
-  m.version = '3.3.0-alpha.2-symbols'
+  version = '3.4.1'
+
+  m.name    = 'Mapbox-iOS-SDK-symbols'
+  m.version = "#{version}-symbols"
 
   m.summary           = 'Open source vector map solution for iOS with full styling capabilities.'
   m.description       = 'Open source, OpenGL-based vector map solution for iOS with full styling capabilities and Cocoa Touch APIs.'
   m.homepage          = 'https://www.mapbox.com/ios-sdk/'
   m.license           = { :type => 'BSD', :file => 'LICENSE.md' }
   m.author            = { 'Mapbox' => 'mobile@mapbox.com' }
-  m.screenshot        = 'https://raw.githubusercontent.com/mapbox/mapbox-gl-native/master/platform/ios/screenshot.png'
+  m.screenshot        = "https://www.mapbox.com/ios-sdk/api/#{version}/img/screenshot.png"
   m.social_media_url  = 'https://twitter.com/mapbox'
-  m.documentation_url = 'https://www.mapbox.com/ios-sdk/'
+  m.documentation_url = 'https://www.mapbox.com/ios-sdk/api/'
 
   m.source = {
     :http => "https://mapbox.s3.amazonaws.com/mapbox-gl-native/ios/builds/mapbox-ios-sdk-#{m.version.to_s}-dynamic.zip",

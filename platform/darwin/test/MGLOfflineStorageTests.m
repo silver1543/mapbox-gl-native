@@ -8,20 +8,28 @@
 
 @implementation MGLOfflineStorageTests
 
-- (void)testSharedObject {
-    XCTAssertEqual([MGLOfflineStorage sharedOfflineStorage], [MGLOfflineStorage sharedOfflineStorage], @"There should only be one shared offline storage object.");
+- (void)setUp {
+    [super setUp];
+    
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        XCTestExpectation *expectation = [self keyValueObservingExpectationForObject:[MGLOfflineStorage sharedOfflineStorage] keyPath:@"packs" handler:^BOOL(id _Nonnull observedObject, NSDictionary * _Nonnull change) {
+            NSKeyValueChange changeKind = [change[NSKeyValueChangeKindKey] unsignedIntegerValue];
+            return changeKind = NSKeyValueChangeSetting;
+        }];
+        if ([MGLOfflineStorage sharedOfflineStorage].packs) {
+            [expectation fulfill];
+            [self waitForExpectationsWithTimeout:0 handler:nil];
+        } else {
+            [self waitForExpectationsWithTimeout:2 handler:nil];
+        }
+        
+        XCTAssertNotNil([MGLOfflineStorage sharedOfflineStorage].packs, @"Shared offline storage object should have a non-nil collection of packs by this point.");
+    });
 }
 
-// This test needs to come first so it can test the initial loading of packs.
-- (void)testAAALoadPacks {
-    [self keyValueObservingExpectationForObject:[MGLOfflineStorage sharedOfflineStorage] keyPath:@"packs" handler:^BOOL(id _Nonnull observedObject, NSDictionary * _Nonnull change) {
-        NSKeyValueChange changeKind = [change[NSKeyValueChangeKindKey] unsignedIntegerValue];
-        return changeKind = NSKeyValueChangeSetting;
-    }];
-    
-    [self waitForExpectationsWithTimeout:1 handler:nil];
-    
-    XCTAssertNotNil([MGLOfflineStorage sharedOfflineStorage].packs, @"Shared offline storage object should have a non-nil collection of packs by this point.");
+- (void)testSharedObject {
+    XCTAssertEqual([MGLOfflineStorage sharedOfflineStorage], [MGLOfflineStorage sharedOfflineStorage], @"There should only be one shared offline storage object.");
 }
 
 - (void)testAddPack {
@@ -56,7 +64,7 @@
         pack = completionHandlerPack;
         [additionCompletionHandlerExpectation fulfill];
     }];
-    [self waitForExpectationsWithTimeout:1 handler:nil];
+    [self waitForExpectationsWithTimeout:2 handler:nil];
     
     XCTAssertEqual([MGLOfflineStorage sharedOfflineStorage].packs.count, countOfPacks + 1, @"Added pack should have been added to the canonical collection of packs owned by the shared offline storage object. This assertion can fail if this test is run before -testAAALoadPacks.");
     
@@ -83,11 +91,11 @@
         NSDictionary *userInfo = notification.userInfo;
         XCTAssertNotNil(userInfo, @"Progress change notification should have a userInfo dictionary.");
         
-        NSNumber *stateNumber = userInfo[MGLOfflinePackStateUserInfoKey];
+        NSNumber *stateNumber = userInfo[MGLOfflinePackUserInfoKeyState];
         XCTAssert([stateNumber isKindOfClass:[NSNumber class]], @"Progress change notification’s state should be an NSNumber.");
         XCTAssertEqual(stateNumber.integerValue, pack.state, @"State in a progress change notification should match the pack’s state.");
         
-        NSValue *progressValue = userInfo[MGLOfflinePackProgressUserInfoKey];
+        NSValue *progressValue = userInfo[MGLOfflinePackUserInfoKeyProgress];
         XCTAssert([progressValue isKindOfClass:[NSValue class]], @"Progress change notification’s progress should be an NSValue.");
         XCTAssertEqualObjects(progressValue, [NSValue valueWithMGLOfflinePackProgress:pack.progress], @"Progress change notification’s progress should match pack’s progress.");
         
@@ -95,6 +103,30 @@
     }];
     [pack requestProgress];
     [self waitForExpectationsWithTimeout:1 handler:nil];
+}
+
+- (void)testBackupExclusion {
+    NSURL *cacheDirectoryURL = [[NSFileManager defaultManager] URLForDirectory:NSApplicationSupportDirectory
+                                                                      inDomain:NSUserDomainMask
+                                                             appropriateForURL:nil
+                                                                        create:NO
+                                                                         error:nil];
+    // Unit tests don't use the main bundle; use com.mapbox.ios.sdk instead.
+    NSString *bundleIdentifier = [NSBundle bundleForClass:[MGLMapView class]].bundleIdentifier;
+    cacheDirectoryURL = [cacheDirectoryURL URLByAppendingPathComponent:bundleIdentifier];
+    cacheDirectoryURL = [cacheDirectoryURL URLByAppendingPathComponent:@".mapbox"];
+    XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:cacheDirectoryURL.path], @"Cache subdirectory should exist.");
+
+    NSURL *cacheURL = [cacheDirectoryURL URLByAppendingPathComponent:@"cache.db"];
+    XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:cacheURL.path], @"Cache database should exist.");
+
+    NSError *error = nil;
+    NSNumber *exclusionFlag = nil;
+    [cacheDirectoryURL getResourceValue:&exclusionFlag
+                                 forKey:NSURLIsExcludedFromBackupKey
+                                  error:&error];
+    XCTAssertTrue(exclusionFlag && [exclusionFlag boolValue], @"Backup exclusion flag should be set for the directory containing the cache database.");
+    XCTAssertNil(error, @"No errors should be returned when checking backup exclusion flag.");
 }
 
 - (void)testRemovePack {
@@ -118,6 +150,10 @@
     XCTAssertEqual(pack.state, MGLOfflinePackStateInvalid, @"Removed pack should have been invalidated synchronously.");
     
     XCTAssertEqual([MGLOfflineStorage sharedOfflineStorage].packs.count, countOfPacks - 1, @"Removed pack should have been removed from the canonical collection of packs owned by the shared offline storage object. This assertion can fail if this test is run before -testAAALoadPacks or -testAddPack.");
+}
+
+- (void)testCountOfBytesCompleted {
+    XCTAssertGreaterThan([MGLOfflineStorage sharedOfflineStorage].countOfBytesCompleted, 0);
 }
 
 @end

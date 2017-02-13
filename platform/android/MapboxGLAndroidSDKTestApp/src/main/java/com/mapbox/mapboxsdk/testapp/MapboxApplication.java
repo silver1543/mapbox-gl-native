@@ -11,19 +11,26 @@ public class MapboxApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        MapboxAccountManager.start(getApplicationContext(), getString(R.string.mapbox_access_token));
+
+        if (LeakCanary.isInAnalyzerProcess(this)) {
+            // This process is dedicated to LeakCanary for heap analysis.
+            // You should not init your app in this process.
+            return;
+        }
         LeakCanary.install(this);
+
         StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder()
                 .detectDiskReads()
                 .detectDiskWrites()
-                .detectNetwork()   // or .detectAll() for all detectable problems
+                .detectNetwork()
                 .penaltyLog()
                 .build());
         StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder()
                 .detectLeakedSqlLiteObjects()
-                .detectLeakedClosableObjects()
                 .penaltyLog()
                 .penaltyDeath()
                 .build());
+
+        MapboxAccountManager.start(getApplicationContext(), getString(R.string.mapbox_access_token));
     }
 }

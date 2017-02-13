@@ -1,5 +1,4 @@
-#ifndef MBGL_ANDROID_JNI
-#define MBGL_ANDROID_JNI
+#pragma once
 
 #include <string>
 
@@ -20,11 +19,10 @@ extern std::string androidRelease;
 extern jmethodID onInvalidateId;
 extern jmethodID onMapChangedId;
 extern jmethodID onFpsChangedId;
+extern jmethodID onSnapshotReadyId;
 
 extern bool attach_jni_thread(JavaVM* vm, JNIEnv** env, std::string threadName);
 extern void detach_jni_thread(JavaVM* vm, JNIEnv** env, bool detach);
 
 }
 }
-
-#endif

@@ -4,6 +4,7 @@ import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.PointF;
 
+import com.mapbox.mapboxsdk.annotations.BaseMarkerOptions;
 import com.mapbox.mapboxsdk.annotations.Marker;
 import com.mapbox.mapboxsdk.annotations.MarkerOptions;
 import com.mapbox.mapboxsdk.annotations.Polygon;
@@ -12,6 +13,7 @@ import com.mapbox.mapboxsdk.annotations.Polyline;
 import com.mapbox.mapboxsdk.annotations.PolylineOptions;
 import com.mapbox.mapboxsdk.camera.CameraPosition;
 import com.mapbox.mapboxsdk.camera.CameraUpdateFactory;
+import com.mapbox.mapboxsdk.exceptions.InvalidMarkerPositionException;
 import com.mapbox.mapboxsdk.geometry.LatLng;
 import com.mapbox.mapboxsdk.geometry.LatLngBounds;
 
@@ -571,39 +573,44 @@ public class MapboxMapTest {
 
     @Test
     public void testAddMarker() {
-        MarkerOptions markerOptions = new MarkerOptions();
+        MarkerOptions markerOptions = new MarkerOptions().position(new LatLng());
         Marker marker = mMapboxMap.addMarker(markerOptions);
         assertTrue("Marker should be contained", mMapboxMap.getMarkers().contains(marker));
     }
 
+    @Test(expected = InvalidMarkerPositionException.class)
+    public void testAddMarkerInvalidPosition(){
+        new MarkerOptions().getMarker();
+    }
+
     @Test
     public void testAddMarkers() {
-        List<MarkerOptions> markerList = new ArrayList<>();
-        MarkerOptions markerOptions1 = new MarkerOptions().title("a");
-        MarkerOptions markerOptions2 = new MarkerOptions().title("b");
+        List<BaseMarkerOptions> markerList = new ArrayList<>();
+        MarkerOptions markerOptions1 = new MarkerOptions().position(new LatLng()).title("a");
+        MarkerOptions markerOptions2 = new MarkerOptions().position(new LatLng()).title("b");
         markerList.add(markerOptions1);
         markerList.add(markerOptions2);
-        mMapboxMap.addMarkers(markerList);
+        List<Marker> markers = mMapboxMap.addMarkers(markerList);
         assertEquals("Markers size should be 2", 2, mMapboxMap.getMarkers().size());
-        assertTrue(mMapboxMap.getMarkers().contains(markerOptions1.getMarker()));
-        assertTrue(mMapboxMap.getMarkers().contains(markerOptions2.getMarker()));
+        assertTrue(mMapboxMap.getMarkers().contains(markers.get(0)));
+        assertTrue(mMapboxMap.getMarkers().contains(markers.get(1)));
     }
 
     @Test
     public void testAddMarkersEmpty() {
-        List<MarkerOptions> markerList = new ArrayList<>();
+        List<BaseMarkerOptions> markerList = new ArrayList<>();
         mMapboxMap.addMarkers(markerList);
         assertEquals("Markers size should be 0", 0, mMapboxMap.getMarkers().size());
     }
 
     @Test
     public void testAddMarkersSingleMarker() {
-        List<MarkerOptions> markerList = new ArrayList<>();
-        MarkerOptions markerOptions = new MarkerOptions().title("a");
+        List<BaseMarkerOptions> markerList = new ArrayList<>();
+        MarkerOptions markerOptions = new MarkerOptions().title("a").position(new LatLng());
         markerList.add(markerOptions);
-        mMapboxMap.addMarkers(markerList);
+        List<Marker> markers = mMapboxMap.addMarkers(markerList);
         assertEquals("Markers size should be 1", 1, mMapboxMap.getMarkers().size());
-        assertTrue(mMapboxMap.getMarkers().contains(markerOptions.getMarker()));
+        assertTrue(mMapboxMap.getMarkers().contains(markers.get(0)));
     }
 
     @Test
@@ -700,7 +707,7 @@ public class MapboxMapTest {
 
     @Test
     public void testRemoveMarker() {
-        MarkerOptions markerOptions = new MarkerOptions();
+        MarkerOptions markerOptions = new MarkerOptions().position(new LatLng());
         Marker marker = mMapboxMap.addMarker(markerOptions);
         mMapboxMap.removeMarker(marker);
         assertTrue("Markers should be empty", mMapboxMap.getMarkers().isEmpty());
@@ -724,7 +731,7 @@ public class MapboxMapTest {
 
     @Test
     public void testRemoveAnnotation() {
-        MarkerOptions markerOptions = new MarkerOptions();
+        MarkerOptions markerOptions = new MarkerOptions().position(new LatLng());
         Marker marker = mMapboxMap.addMarker(markerOptions);
         mMapboxMap.removeAnnotation(marker);
         assertTrue("Annotations should be empty", mMapboxMap.getAnnotations().isEmpty());
@@ -732,7 +739,7 @@ public class MapboxMapTest {
 
     @Test
     public void testRemoveAnnotationById() {
-        MarkerOptions markerOptions = new MarkerOptions();
+        MarkerOptions markerOptions = new MarkerOptions().position(new LatLng());
         mMapboxMap.addMarker(markerOptions);
         // id will always be 0 in unit tests
         mMapboxMap.removeAnnotation(0);
@@ -741,9 +748,9 @@ public class MapboxMapTest {
 
     @Test
     public void testRemoveAnnotations() {
-        List<MarkerOptions> markerList = new ArrayList<>();
-        MarkerOptions markerOptions1 = new MarkerOptions().title("a");
-        MarkerOptions markerOptions2 = new MarkerOptions().title("b");
+        List<BaseMarkerOptions> markerList = new ArrayList<>();
+        MarkerOptions markerOptions1 = new MarkerOptions().title("a").position(new LatLng());
+        MarkerOptions markerOptions2 = new MarkerOptions().title("b").position(new LatLng());
         markerList.add(markerOptions1);
         markerList.add(markerOptions2);
         mMapboxMap.addMarkers(markerList);
@@ -753,9 +760,9 @@ public class MapboxMapTest {
 
     @Test
     public void testClear() {
-        List<MarkerOptions> markerList = new ArrayList<>();
-        MarkerOptions markerOptions1 = new MarkerOptions().title("a");
-        MarkerOptions markerOptions2 = new MarkerOptions().title("b");
+        List<BaseMarkerOptions> markerList = new ArrayList<>();
+        MarkerOptions markerOptions1 = new MarkerOptions().title("a").position(new LatLng());
+        MarkerOptions markerOptions2 = new MarkerOptions().title("b").position(new LatLng());
         markerList.add(markerOptions1);
         markerList.add(markerOptions2);
         mMapboxMap.addMarkers(markerList);
@@ -765,13 +772,13 @@ public class MapboxMapTest {
 
     @Test
     public void testRemoveAnnotationsByList() {
-        List<MarkerOptions> markerList = new ArrayList<>();
-        MarkerOptions markerOptions1 = new MarkerOptions().title("a");
-        MarkerOptions markerOptions2 = new MarkerOptions().title("b");
+        List<BaseMarkerOptions> markerList = new ArrayList<>();
+        MarkerOptions markerOptions1 = new MarkerOptions().title("a").position(new LatLng());
+        MarkerOptions markerOptions2 = new MarkerOptions().title("b").position(new LatLng());
         markerList.add(markerOptions1);
         markerList.add(markerOptions2);
         List<Marker> markers = mMapboxMap.addMarkers(markerList);
-        Marker marker = mMapboxMap.addMarker(new MarkerOptions().title("c"));
+        Marker marker = mMapboxMap.addMarker(new MarkerOptions().position(new LatLng()).title("c"));
         mMapboxMap.removeAnnotations(markers);
         assertTrue("Annotations should not be empty", mMapboxMap.getAnnotations().size() == 1);
         assertTrue("Marker should be contained", mMapboxMap.getAnnotations().contains(marker));
@@ -779,7 +786,7 @@ public class MapboxMapTest {
 
     @Test
     public void testGetAnnotationById() {
-        MarkerOptions markerOptions = new MarkerOptions();
+        MarkerOptions markerOptions = new MarkerOptions().position(new LatLng());
         Marker initialMarker = mMapboxMap.addMarker(markerOptions);
         Marker retrievedMarker = (Marker) mMapboxMap.getAnnotation(0);
         assertEquals("Markers should match", initialMarker, retrievedMarker);
@@ -813,7 +820,7 @@ public class MapboxMapTest {
     @Test
     public void testSelectMarker() {
         mMapboxMap.setOnMarkerClickListener(mOnMarkerClickListener);
-        MarkerOptions markerOptions = new MarkerOptions();
+        MarkerOptions markerOptions = new MarkerOptions().position(new LatLng());
         Marker marker = mMapboxMap.addMarker(markerOptions);
         when(mOnMarkerClickListener.onMarkerClick(marker)).thenReturn(true);
         mMapboxMap.selectMarker(marker);
@@ -823,7 +830,7 @@ public class MapboxMapTest {
     @Test
     public void testDeselectMarker() {
         mMapboxMap.setOnMarkerClickListener(mOnMarkerClickListener);
-        MarkerOptions markerOptions = new MarkerOptions();
+        MarkerOptions markerOptions = new MarkerOptions().position(new LatLng());
         Marker marker = mMapboxMap.addMarker(markerOptions);
         when(mOnMarkerClickListener.onMarkerClick(marker)).thenReturn(true);
         mMapboxMap.selectMarker(marker);
@@ -834,7 +841,7 @@ public class MapboxMapTest {
     @Test
     public void testDeselectMarkers() {
         mMapboxMap.setOnMarkerClickListener(mOnMarkerClickListener);
-        MarkerOptions markerOptions = new MarkerOptions();
+        MarkerOptions markerOptions = new MarkerOptions().position(new LatLng());
         Marker marker1 = mMapboxMap.addMarker(markerOptions);
         Marker marker2 = mMapboxMap.addMarker(markerOptions);
         when(mOnMarkerClickListener.onMarkerClick(marker1)).thenReturn(true);
@@ -852,7 +859,7 @@ public class MapboxMapTest {
     @Test
     public void testOnMarkerClick() {
         mMapboxMap.setOnMarkerClickListener(mOnMarkerClickListener);
-        Marker marker = new MarkerOptions().getMarker();
+        Marker marker = new MarkerOptions().position(new LatLng()).getMarker();
         when(mOnMarkerClickListener.onMarkerClick(marker)).thenReturn(true);
         mMapboxMap.selectMarker(marker);
         verify(mOnMarkerClickListener, times(1)).onMarkerClick(marker);
