@@ -21,6 +21,8 @@
 #include "geometry/projected_meters.hpp"
 #include "style/layers/layers.hpp"
 #include "style/sources/sources.hpp"
+#include "geometry/lat_lng_bounds.hpp"
+#include "map/camera_position.hpp"
 
 #include <string>
 #include <jni.h>
@@ -40,7 +42,13 @@ public:
 
     static void registerNative(jni::JNIEnv&);
 
-    NativeMapView(jni::JNIEnv&, jni::Object<NativeMapView>, jni::Object<FileSource>, jni::jfloat, jni::jint, jni::jlong);
+    NativeMapView(jni::JNIEnv&,
+                  jni::Object<NativeMapView>,
+                  jni::Object<FileSource>,
+                  jni::jfloat pixelRatio,
+                  jni::String programCacheDir,
+                  jni::jint availableProcessors,
+                  jni::jlong totalMemory);
 
     virtual ~NativeMapView();
 
@@ -101,6 +109,8 @@ public:
 
     void setLatLng(jni::JNIEnv&, jni::jdouble, jni::jdouble, jni::jlong);
 
+    jni::Object<CameraPosition> getCameraForLatLngBounds(jni::JNIEnv&, jni::Object<mbgl::android::LatLngBounds>);
+
     void setReachability(jni::JNIEnv&, jni::jboolean);
 
     void resetPosition(jni::JNIEnv&);
@@ -147,7 +157,7 @@ public:
 
     void enableFps(jni::JNIEnv&, jni::jboolean enable);
 
-    jni::Array<jni::jdouble> getCameraValues(jni::JNIEnv&);
+    jni::Object<CameraPosition> getCameraPosition(jni::JNIEnv&);
 
     void updateMarker(jni::JNIEnv&, jni::jlong, jni::jdouble, jni::jdouble, jni::String);
 

@@ -56,7 +56,8 @@ public:
          MapMode,
          GLContextMode,
          ConstrainMode,
-         ViewportMode);
+         ViewportMode,
+         const std::string& programCacheDir);
 
     void onSourceAttributionChanged(style::Source&, const std::string&) override;
     void onUpdate(Update) override;
@@ -80,6 +81,7 @@ public:
     const MapMode mode;
     const GLContextMode contextMode;
     const float pixelRatio;
+    const std::string programCacheDir;
 
     MapDebugOptions debugOptions { MapDebugOptions::NoDebug };
 
@@ -111,7 +113,8 @@ Map::Map(Backend& backend,
          MapMode mapMode,
          GLContextMode contextMode,
          ConstrainMode constrainMode,
-         ViewportMode viewportMode)
+         ViewportMode viewportMode,
+         const std::string& programCacheDir)
     : impl(std::make_unique<Impl>(*this,
                                   backend,
                                   pixelRatio,
@@ -120,7 +123,8 @@ Map::Map(Backend& backend,
                                   mapMode,
                                   contextMode,
                                   constrainMode,
-                                  viewportMode)) {
+                                  viewportMode,
+                                  programCacheDir)) {
     impl->transform.resize(size);
 }
 
@@ -132,7 +136,8 @@ Map::Impl::Impl(Map& map_,
                 MapMode mode_,
                 GLContextMode contextMode_,
                 ConstrainMode constrainMode_,
-                ViewportMode viewportMode_)
+                ViewportMode viewportMode_,
+                const std::string& programCacheDir_)
     : map(map_),
       backend(backend_),
       fileSource(fileSource_),
@@ -143,6 +148,7 @@ Map::Impl::Impl(Map& map_,
       mode(mode_),
       contextMode(contextMode_),
       pixelRatio(pixelRatio_),
+      programCacheDir(programCacheDir_),
       annotationManager(std::make_unique<AnnotationManager>(pixelRatio)),
       asyncInvalidate([this] {
           if (mode == MapMode::Continuous) {
@@ -259,7 +265,7 @@ void Map::Impl::render(View& view) {
     updateFlags = Update::Nothing;
 
     if (!painter) {
-        painter = std::make_unique<Painter>(backend.getContext(), transform.getState(), pixelRatio);
+        painter = std::make_unique<Painter>(backend.getContext(), transform.getState(), pixelRatio, programCacheDir);
     }
 
     if (mode == MapMode::Continuous) {
@@ -348,7 +354,7 @@ void Map::setStyleURL(const std::string& url) {
     impl->styleJSON.clear();
     impl->styleMutated = false;
 
-    impl->style = std::make_unique<Style>(impl->fileSource, impl->pixelRatio);
+    impl->style = std::make_unique<Style>(impl->scheduler, impl->fileSource, impl->pixelRatio);
 
     impl->styleRequest = impl->fileSource.request(Resource::style(impl->styleURL), [this](Response res) {
         // Once we get a fresh style, or the style is mutated, stop revalidating.
@@ -391,7 +397,7 @@ void Map::setStyleJSON(const std::string& json) {
     impl->styleJSON.clear();
     impl->styleMutated = false;
 
-    impl->style = std::make_unique<Style>(impl->fileSource, impl->pixelRatio);
+    impl->style = std::make_unique<Style>(impl->scheduler, impl->fileSource, impl->pixelRatio);
 
     impl->loadStyleJSON(json);
 }
@@ -587,7 +593,7 @@ CameraOptions Map::cameraForLatLngs(const std::vector<LatLng>& latLngs, optional
     ScreenCoordinate swPixel = {INFINITY, INFINITY};
     double viewportHeight = getSize().height;
     for (LatLng latLng : latLngs) {
-        ScreenCoordinate pixel = pixelForLatLng(latLng);
+        ScreenCoordinate pixel = impl->transform.latLngToScreenCoordinate(latLng);
         swPixel.x = std::min(swPixel.x, pixel.x);
         nePixel.x = std::max(nePixel.x, pixel.x);
         swPixel.y = std::min(swPixel.y, viewportHeight - pixel.y);
@@ -771,7 +777,12 @@ LatLng Map::latLngForProjectedMeters(const ProjectedMeters& projectedMeters) con
 }
 
 ScreenCoordinate Map::pixelForLatLng(const LatLng& latLng) const {
-    return impl->transform.latLngToScreenCoordinate(latLng);
+    // If the center and point longitudes are not in the same side of the
+    // antimeridian, we unwrap the point longitude so it would be seen if
+    // e.g. the next antimeridian side is visible.
+    LatLng unwrappedLatLng = latLng.wrapped();
+    unwrappedLatLng.unwrapForShortestPath(getLatLng());
+    return impl->transform.latLngToScreenCoordinate(unwrappedLatLng);
 }
 
 LatLng Map::latLngForPixel(const ScreenCoordinate& pixel) const {
